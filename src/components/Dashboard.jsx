@@ -1,34 +1,27 @@
 import ConnectionStatus from './ConnectionStatus'
 import Map from './Map'
 import LapStats from './LapStats'
-import FuelGauge from './FuelGauge'
 import StrategyPanel from './StrategyPanel'
 
 export default function Dashboard() {
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
-      {/* Header */}
-      <header className="flex items-center gap-3 px-4 py-2 bg-gray-950 border-b border-gray-800">
-        <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded-full bg-shell-yellow" />
-          <span className="font-bold text-white tracking-tight">EcoMarathon Strategy</span>
-        </div>
-        <span className="text-xs text-gray-600 font-mono">tome.lu:1883</span>
-      </header>
-
+    <div className="flex flex-col h-screen overflow-hidden bg-gray-950">
       <ConnectionStatus />
 
-      {/* Main layout */}
-      <div className="flex flex-1 overflow-hidden gap-3 p-3">
-        {/* Left: Map takes most space */}
-        <div className="flex-1 min-w-0">
+      <div className="flex flex-1 overflow-hidden gap-2 p-2 min-w-0">
+        {/* Map fills all remaining space */}
+        <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
           <Map />
         </div>
 
-        {/* Right sidebar */}
-        <div className="w-80 flex flex-col gap-3 overflow-y-auto shrink-0">
+        {/* Right panel: wider for lap table readability, scrollable */}
+        <div className="w-80 flex flex-col gap-2 shrink-0 overflow-y-auto">
+          <div className="flex justify-end">
+            <a href="#/sim" className="text-xs text-gray-600 hover:text-shell-yellow transition-colors px-2 py-0.5 rounded border border-gray-800 hover:border-gray-600">
+              Sim →
+            </a>
+          </div>
           <StrategyPanel />
-          <FuelGauge />
           <LapStats />
         </div>
       </div>

@@ -2,17 +2,24 @@ import { useEffect, useRef } from 'react'
 import mqtt from 'mqtt'
 import { useRaceStore } from '../store/raceStore'
 
-const BROKER_URL = 'ws://tome.lu:9001'
+const BROKER_URL = 'wss://mqtt-ws.tome.lu'
+const BROKER_USER = 'eco'
+const BROKER_PASS = 'marathon'
 
 const TOPICS = [
   'gps/position',
   'gps/status',
   'ecu/data',
+  'speed/data',
   'race/laps',
   'race/current_lap',
   'race/info_text',
   'config/ideal_lap_time',
   'config/total_laps',
+  'config/corners',
+  'config/start_line',
+  'config/lap_line',
+  'config/finish_line',
 ]
 
 export function useMqtt() {
@@ -24,6 +31,8 @@ export function useMqtt() {
       clientId: `eco-strategy-${Math.random().toString(16).slice(2, 8)}`,
       clean: true,
       reconnectPeriod: 3000,
+      username: BROKER_USER,
+      password: BROKER_PASS,
     })
     clientRef.current = client
 
@@ -65,6 +74,9 @@ export function useMqtt() {
         case 'ecu/data':
           store.setEcuData(data)
           break
+        case 'speed/data':
+          store.setSpeedData(data)
+          break
         case 'race/laps':
           if (data.event === 'lap_complete' || data.event === 'lap') {
             store.addLap({
@@ -90,6 +102,18 @@ export function useMqtt() {
           break
         case 'config/total_laps':
           store.setTotalLaps(Number(data))
+          break
+        case 'config/corners':
+          store.setCorners(data)
+          break
+        case 'config/start_line':
+          store.setStartLine(data)
+          break
+        case 'config/lap_line':
+          store.setLapLine(data)
+          break
+        case 'config/finish_line':
+          store.setFinishLine(data)
           break
       }
     })

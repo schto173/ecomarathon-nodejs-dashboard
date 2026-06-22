@@ -31,32 +31,31 @@ export default function LapStats() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-gray-500 text-xs uppercase border-b border-gray-800">
-                <th className="text-left pb-2 pr-3">Lap</th>
-                <th className="text-right pb-2 pr-3">Time</th>
-                <th className="text-right pb-2 pr-3">Δ Ideal</th>
-                <th className="text-right pb-2 pr-3">Fuel ml</th>
-                <th className="text-right pb-2">Speed</th>
+                <th className="text-left pb-2 pr-2">Lap</th>
+                <th className="text-right pb-2 pr-2">Time</th>
+                <th className="text-right pb-2 pr-2">Δ</th>
+                <th className="text-right pb-2 pr-2">ml</th>
+                <th className="text-right pb-2">km/l</th>
               </tr>
             </thead>
             <tbody>
-              {[...lapHistory].reverse().map((lap, i) => (
-                <tr key={i} className="border-b border-gray-800/50">
-                  <td className="py-1.5 pr-3 font-medium text-white">{lap.lap}</td>
-                  <td className="py-1.5 pr-3 text-right font-mono">{fmt(lap.duration)}</td>
-                  <td className={`py-1.5 pr-3 text-right font-mono ${diffColor(lap.lap_ideal_diff)}`}>
-                    {lap.lap_ideal_diff != null
-                      ? `${lap.lap_ideal_diff > 0 ? '+' : ''}${lap.lap_ideal_diff.toFixed(1)}s`
-                      : idealLapTime && lap.duration != null
-                        ? (() => {
-                            const d = lap.duration - idealLapTime
-                            return <span className={diffColor(d)}>{d > 0 ? '+' : ''}{d.toFixed(1)}s</span>
-                          })()
-                        : '—'}
-                  </td>
-                  <td className="py-1.5 pr-3 text-right font-mono">{lap.fuel_lap ? lap.fuel_lap.toFixed(0) : '—'}</td>
-                  <td className="py-1.5 text-right font-mono">{lap.speed ? `${lap.speed.toFixed(1)} km/h` : '—'}</td>
-                </tr>
-              ))}
+              {[...lapHistory].reverse().map((lap, i) => {
+                const kmPerL = lap.fuel_lap > 0
+                  ? ((1.3196 / (lap.fuel_lap / 1000 / 0.745))).toFixed(0)
+                  : '—'
+                const diff = lap.lap_ideal_diff ?? (idealLapTime && lap.duration != null ? lap.duration - idealLapTime : null)
+                return (
+                  <tr key={i} className="border-b border-gray-800/50">
+                    <td className="py-1.5 pr-2 font-medium text-white">{lap.lap}</td>
+                    <td className="py-1.5 pr-2 text-right font-mono text-xs">{fmt(lap.duration)}</td>
+                    <td className={`py-1.5 pr-2 text-right font-mono text-xs ${diffColor(diff)}`}>
+                      {diff != null ? `${diff > 0 ? '+' : ''}${diff.toFixed(0)}s` : '—'}
+                    </td>
+                    <td className="py-1.5 pr-2 text-right font-mono text-xs">{lap.fuel_lap ? lap.fuel_lap.toFixed(0) : '—'}</td>
+                    <td className="py-1.5 text-right font-mono text-xs text-cyan-400">{kmPerL}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
