@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-gray-950 text-white;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* Leaflet z-index fix inside flex layouts */
+.leaflet-container {
+  z-index: 0;
+}
