@@ -3,16 +3,24 @@ import { create } from 'zustand'
 const ENGINE_ON_RPM = 300
 const TRAIL_WINDOW_MS = 60_000
 
-const BLUE = { r: 30,  g: 58,  b: 180 }
-const RED  = { r: 221, g: 29,  b: 33  }
+const SPEED_STOPS = [
+  { t: 0,    r: 30,  g: 58,  b: 180 },
+  { t: 0.25, r: 6,   g: 182, b: 212 },
+  { t: 0.5,  r: 52,  g: 211, b: 153 },
+  { t: 0.75, r: 251, g: 191, b: 36  },
+  { t: 1,    r: 220, g: 38,  b: 38  },
+]
 const SLOW_KMH = 18, FAST_KMH = 40
 
 function speedColorRgb(kmh) {
   if (kmh == null || kmh < 1) return '#374151'
-  if (kmh <= SLOW_KMH) return `rgb(${BLUE.r},${BLUE.g},${BLUE.b})`
-  if (kmh >= FAST_KMH) return `rgb(${RED.r},${RED.g},${RED.b})`
-  const t = (kmh - SLOW_KMH) / (FAST_KMH - SLOW_KMH)
-  return `rgb(${Math.round(BLUE.r+(RED.r-BLUE.r)*t)},${Math.round(BLUE.g+(RED.g-BLUE.g)*t)},${Math.round(BLUE.b+(RED.b-BLUE.b)*t)})`
+  const t = Math.min(1, Math.max(0, (kmh - SLOW_KMH) / (FAST_KMH - SLOW_KMH)))
+  let lo = SPEED_STOPS[0], hi = SPEED_STOPS[SPEED_STOPS.length - 1]
+  for (let i = 0; i < SPEED_STOPS.length - 1; i++) {
+    if (t >= SPEED_STOPS[i].t && t <= SPEED_STOPS[i + 1].t) { lo = SPEED_STOPS[i]; hi = SPEED_STOPS[i + 1]; break }
+  }
+  const f = lo.t === hi.t ? 0 : (t - lo.t) / (hi.t - lo.t)
+  return `rgb(${Math.round(lo.r+(hi.r-lo.r)*f)},${Math.round(lo.g+(hi.g-lo.g)*f)},${Math.round(lo.b+(hi.b-lo.b)*f)})`
 }
 
 export const useRaceStore = create((set, get) => ({
