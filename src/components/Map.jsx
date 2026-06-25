@@ -7,6 +7,21 @@ import SpeedDial from './SpeedDial'
 
 const SILESIA_CENTER = [50.5293, 18.0960]
 const DEFAULT_ZOOM = 17
+const VIEW_KEY = 'map-view'
+
+function loadSavedView() {
+  try {
+    const v = sessionStorage.getItem(VIEW_KEY)
+    return v ? JSON.parse(v) : null
+  } catch { return null }
+}
+
+function saveView(map) {
+  try {
+    const c = map.getCenter()
+    sessionStorage.setItem(VIEW_KEY, JSON.stringify({ lat: c.lat, lng: c.lng, zoom: map.getZoom() }))
+  } catch {}
+}
 
 const SPEED_STOPS = [
   { t: 0,    r: 30,  g: 58,  b: 180 },
@@ -28,31 +43,31 @@ function speedColor(kmh) {
   return `rgb(${Math.round(lo.r+(hi.r-lo.r)*f)},${Math.round(lo.g+(hi.g-lo.g)*f)},${Math.round(lo.b+(hi.b-lo.b)*f)})`
 }
 
-// Direct Leaflet layer management — bypasses react-leaflet reconciler to guarantee clean removal
-function TrailLayer({ trail }) {
+// Trail from server's rolling position array — colour-coded by speed
+function TrailLayer({ positions }) {
   const map = useMap()
   const layersRef = useRef([])
 
   useEffect(() => {
     layersRef.current.forEach(l => { try { map.removeLayer(l) } catch (_) {} })
     layersRef.current = []
-    if (!trail.length) return
+    if (!positions.length) return
 
     const segments = []
-    for (let i = 1; i < trail.length; i++) {
-      const a = trail[i - 1], b = trail[i]
-      if (!a.latitude || !b.latitude) continue
-      const color = b._color ?? speedColor(b.speed_kmh)
+    for (let i = 1; i < positions.length; i++) {
+      const a = positions[i - 1], b = positions[i]
+      if (!a.lat || !b.lat) continue
+      const color = speedColor(b.speed_kmh)
       const last = segments[segments.length - 1]
       if (last && last.color === color) {
-        last.positions.push([b.latitude, b.longitude])
+        last.pts.push([b.lat, b.lng])
       } else {
-        segments.push({ color, positions: [[a.latitude, a.longitude], [b.latitude, b.longitude]] })
+        segments.push({ color, pts: [[a.lat, a.lng], [b.lat, b.lng]] })
       }
     }
 
-    segments.forEach(seg => {
-      const layer = L.polyline(seg.positions, { color: seg.color, weight: 4, opacity: 0.95 })
+    segments.forEach(({ color, pts }) => {
+      const layer = L.polyline(pts, { color, weight: 4, opacity: 0.95 })
       layer.addTo(map)
       layersRef.current.push(layer)
     })
@@ -61,7 +76,7 @@ function TrailLayer({ trail }) {
       layersRef.current.forEach(l => { try { map.removeLayer(l) } catch (_) {} })
       layersRef.current = []
     }
-  }, [trail])
+  }, [positions])
 
   return null
 }
@@ -100,30 +115,46 @@ function cornerIcon() {
   return makeIcon(`<div style="width:8px;height:8px;background:#a78bfa;border:2px solid #fff;border-radius:50%"></div>`, 8, 8)
 }
 
-function InvalidateSize() {
+function MapController({ trail }) {
   const map = useMap()
+  const fitted = useRef(false)
+
   useEffect(() => {
-    // Force Leaflet to recalculate its container size after the flex layout resolves
-    const id = setTimeout(() => map.invalidateSize(), 50)
+    // Restore saved view or fit to trail once
+    const id = setTimeout(() => {
+      map.invalidateSize()
+      const saved = loadSavedView()
+      if (saved) {
+        map.setView([saved.lat, saved.lng], saved.zoom, { animate: false })
+        fitted.current = true
+      }
+    }, 50)
     return () => clearTimeout(id)
   }, [])
-  return null
-}
 
-function FitToTrail({ trail }) {
-  const map = useMap()
-  const done = useRef(false)
+  // Fit to trail only if no saved view and positions just arrived
   useEffect(() => {
-    if (done.current || trail.length < 60) return
-    const lats = trail.map(p => p.latitude).filter(Boolean)
-    const lngs = trail.map(p => p.longitude).filter(Boolean)
+    if (fitted.current || !trail.length) return
+    const saved = loadSavedView()
+    if (saved) { fitted.current = true; return }
+    const lats = trail.map(p => p.lat).filter(Boolean)
+    const lngs = trail.map(p => p.lng).filter(Boolean)
     if (!lats.length) return
     map.fitBounds(
       [[Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]],
       { padding: [48, 48], maxZoom: 18, animate: true, duration: 1.0 },
     )
-    done.current = true
+    fitted.current = true
   }, [trail.length])
+
+  // Persist view on every move/zoom
+  useEffect(() => {
+    const handler = () => saveView(map)
+    map.on('moveend', handler)
+    map.on('zoomend', handler)
+    return () => { map.off('moveend', handler); map.off('zoomend', handler) }
+  }, [])
+
   return null
 }
 
@@ -260,16 +291,20 @@ function EngineWidget() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function Map() {
-  const { position, lapTrail, engineEvents, corners, startLine, lapLine, finishLine } = useRaceStore()
+  const { position, livePositions, engineEvents, corners, startLine, lapLine, finishLine } = useRaceStore()
   const startPts  = parseLine(startLine)
   const lapPts    = parseLine(lapLine)
   const finishPts = parseLine(finishLine)
 
+  const savedView = loadSavedView()
+  const initialCenter = savedView ? [savedView.lat, savedView.lng] : SILESIA_CENTER
+  const initialZoom = savedView ? savedView.zoom : DEFAULT_ZOOM
+
   return (
     <div className="rounded-xl overflow-hidden border border-gray-800 h-full min-h-[320px] relative">
       <MapContainer
-        center={SILESIA_CENTER}
-        zoom={DEFAULT_ZOOM}
+        center={initialCenter}
+        zoom={initialZoom}
         style={{ height: '100%', width: '100%' }}
         zoomControl={false}
         zoomSnap={0.1}
@@ -278,17 +313,9 @@ export default function Map() {
       >
         <TileLayer url="https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}&s=Ga" attribution="" maxZoom={21} />
 
-        <TrailLayer trail={lapTrail} />
+        <TrailLayer positions={livePositions} />
 
-        {startPts  && <Polyline positions={startPts}  color="#22c55e" weight={5} dashArray="8 4" />}
-        {lapPts    && <Polyline positions={lapPts}    color="#FBCE07" weight={5} dashArray="8 4" />}
-        {finishPts && <Polyline positions={finishPts} color="#DD1D21" weight={5} dashArray="8 4" />}
 
-        {corners.map((c, i) => {
-          const lat = c.lat ?? c.latitude, lng = c.lng ?? c.longitude
-          if (!lat || !lng) return null
-          return <Marker key={i} position={[lat, lng]} icon={cornerIcon()} />
-        })}
 
         {engineEvents.map((ev, i) => (
           <Marker key={ev.t ?? i} position={[ev.lat, ev.lng]} icon={engineEventIcon(ev)} />
@@ -298,8 +325,7 @@ export default function Map() {
           <Marker position={[position.latitude, position.longitude]} icon={makeCarIcon(speedColor(position.speed_kmh))} />
         )}
 
-        <InvalidateSize />
-        <FitToTrail trail={lapTrail} />
+        <MapController trail={livePositions} />
       </MapContainer>
 
       {/* Draggable overlays — rendered outside MapContainer but inside the relative wrapper */}

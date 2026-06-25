@@ -1,0 +1,6 @@
+services:
+  eco-dashboard:
+    build: .
+    ports:
+      - "80:80"
+    restart: unless-stopped

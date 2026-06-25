@@ -14,16 +14,48 @@ function useHash() {
   return hash
 }
 
+function fetchLive() {
+  fetch('/api/live')
+    .then(r => r.json())
+    .then(data => useRaceStore.getState().setLiveData(data))
+    .catch(() => {})
+}
+
 export default function App() {
   useMqtt()
   const hash = useHash()
   const trimTrail = useRaceStore((s) => s.trimTrail)
 
-  // Trim old trail points every second regardless of whether GPS data is arriving
   useEffect(() => {
     const id = setInterval(trimTrail, 1000)
     return () => clearInterval(id)
   }, [trimTrail])
+
+  useEffect(() => {
+    const store = useRaceStore.getState()
+
+    // Seed historical laps once on load
+    fetch('/api/laps')
+      .then(r => r.json())
+      .then(laps => { if (Array.isArray(laps) && laps.length > 0) store.setLapHistory(laps) })
+      .catch(err => console.warn('laps:', err))
+
+    // Poll server every second — live positions, engine events, state snapshot
+    function pollAll() {
+      fetch('/api/state')
+        .then(r => r.json())
+        .then(({ position, ecuData, currentLap }) => {
+          if (position) store.seedPosition(position)
+          if (ecuData) store.setEcuData(ecuData)
+          if (currentLap != null) store.setCurrentLap(currentLap)
+        })
+        .catch(() => {})
+      fetchLive()
+    }
+    pollAll()
+    const timer = setInterval(pollAll, 1_000)
+    return () => clearInterval(timer)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return hash === '#/sim' ? <SimulatorPage /> : <Dashboard />
 }

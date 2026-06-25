@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 
-const ENGINE_ON_RPM = 300
-const TRAIL_WINDOW_MS = 60_000
+const DEFAULT_TRAIL_MS = 160_000  // idealLapTime(183) - 20 = 163 s, default 160 s
 
 const SPEED_STOPS = [
   { t: 0,    r: 30,  g: 58,  b: 180 },
@@ -29,26 +28,22 @@ export const useRaceStore = create((set, get) => ({
   setMqttConnected: (v) => set({ mqttConnected: v }),
 
   // GPS
-  position: null,          // { latitude, longitude, altitude, speed_kmh, heading, timestamp }
-  positionHistory: [],     // last 500 positions for full trail (with speed + engineOn flag)
-  lapTrail: [],            // positions since start of current lap (reset each lap)
+  position: null,         // { latitude, longitude, altitude, speed_kmh, heading, timestamp }
+  livePositions: [],      // rolling 160 s window from server — { lat, lng, speed_kmh, t }
   gpsStatus: null,
-  setPosition: (pos) =>
-    set((s) => {
-      const engineOn = (s.speedData?.rpm ?? 0) >= ENGINE_ON_RPM
-      const fuelRate = s.ecuData?.FuelConsumption_g_min ?? null
-      // Pre-compute and freeze the speed color so it never changes once assigned
-      const _color = speedColorRgb(pos.speed_kmh)
-      const now = Date.now()
-      const enriched = { ...pos, engineOn, fuelRate, _t: now, _color }
-      const cutoff = now - TRAIL_WINDOW_MS
-      return {
-        position: pos,
-        positionHistory: [...s.positionHistory.slice(-499), enriched],
-        lapTrail: [...s.lapTrail, enriched].filter(p => p._t >= cutoff),
-      }
-    }),
+  setPosition: (pos) => set({ position: pos }),
+  seedPosition: (pos) => set({ position: pos }),
   setGpsStatus: (st) => set({ gpsStatus: st }),
+
+  // Live data from /api/live — replaces both trail sources
+  setLiveData: ({ positions, engineEvents }) => set((s) => {
+    const lastEv = engineEvents?.[engineEvents.length - 1]
+    return {
+      livePositions: Array.isArray(positions) ? positions : s.livePositions,
+      engineEvents: Array.isArray(engineEvents) ? engineEvents : s.engineEvents,
+      engineOn: lastEv ? lastEv.type === 'start' : s.engineOn,
+    }
+  }),
 
   // ECU / fuel — full field set from ecu/data topic
   ecuData: null,
@@ -59,56 +54,33 @@ export const useRaceStore = create((set, get) => ({
       ecuHistory: [...s.ecuHistory.slice(-299), { ...d, t: Date.now() }],
     })),
 
-  // Speed sensor (speed/data topic) — also detects engine on/off transitions
+  // Speed sensor (speed/data topic)
   speedData: null,
   speedHistory: [],
-  engineEvents: [], // { type:'start'|'stop', lat, lng, speed_kmh, fuelRate, rpm, t }
-  engineOn: false,
   setSpeedData: (d) =>
     set((s) => {
-      const prevRpm = s.speedData?.rpm ?? 0
-      const newRpm = d.rpm ?? 0
-      const wasOn = prevRpm >= ENGINE_ON_RPM
-      const isOn = newRpm >= ENGINE_ON_RPM
-      const speed_kmh = newRpm * 0.0894
+      const speed_kmh = (d.rpm ?? 0) * 0.0894
       const sample = { ...d, t: Date.now(), speed_kmh }
-
-      let newEngineEvents = s.engineEvents
-      if (!wasOn && isOn && s.position) {
-        newEngineEvents = [...s.engineEvents, {
-          type: 'start', rpm: newRpm,
-          lat: s.position.latitude, lng: s.position.longitude,
-          speed_kmh: s.position.speed_kmh ?? speed_kmh,
-          fuelRate: s.ecuData?.FuelConsumption_g_min ?? null,
-          t: Date.now(),
-        }]
-      } else if (wasOn && !isOn && s.position) {
-        newEngineEvents = [...s.engineEvents, {
-          type: 'stop', rpm: prevRpm,
-          lat: s.position.latitude, lng: s.position.longitude,
-          speed_kmh: s.position.speed_kmh ?? 0,
-          fuelRate: s.ecuData?.FuelConsumption_g_min ?? null,
-          t: Date.now(),
-        }]
-      }
-
-      const cutoff = Date.now() - TRAIL_WINDOW_MS
       return {
         speedData: d,
-        engineOn: isOn,
         speedHistory: [...s.speedHistory.slice(-299), sample],
-        engineEvents: newEngineEvents.filter(ev => ev.t >= cutoff),
       }
     }),
 
-  // Periodic cleanup — call every second even when no GPS data arrives
-  trimTrail: () => set((s) => {
-    const cutoff = Date.now() - TRAIL_WINDOW_MS
-    return {
-      lapTrail: s.lapTrail.filter(p => p._t >= cutoff),
-      engineEvents: s.engineEvents.filter(ev => ev.t >= cutoff),
-    }
-  }),
+  // Engine events — computed server-side, published via race/engine_event
+  engineEvents: [], // { type:'start'|'stop', lat, lng, speed_kmh, t }
+  engineOn: false,
+  addEngineEvent: (ev) =>
+    set((s) => {
+      const trailMs = s.idealLapTime ? Math.max(30_000, (s.idealLapTime - 20) * 1000) : DEFAULT_TRAIL_MS
+      const cutoff = Date.now() - trailMs
+      return {
+        engineEvents: [...s.engineEvents, { ...ev, t: ev.t ?? Date.now() }].filter(e => e.t >= cutoff),
+        engineOn: ev.type === 'start',
+      }
+    }),
+
+  trimTrail: () => {},  // trimming now handled server-side
 
   // Race config from MQTT
   corners: [],        // [{ lat, lng, name? }]
@@ -133,10 +105,19 @@ export const useRaceStore = create((set, get) => ({
   // Lap history
   lapHistory: [],
   addLap: (data) =>
-    set((s) => ({
-      lapHistory: [...s.lapHistory, data],
-    })),
-  clearLaps: () => set({ lapHistory: [], currentLap: 0, lapTrail: [], engineEvents: [] }),
+    set((s) => {
+      const map = new Map(s.lapHistory.map(l => [l.lap, l]))
+      map.set(data.lap, data) // live MQTT lap overwrites historical
+      return { lapHistory: [...map.values()].sort((a, b) => a.lap - b.lap) }
+    }),
+  // Hydrate from InfluxDB on load; live MQTT laps added later take priority
+  setLapHistory: (laps) =>
+    set((s) => {
+      const map = new Map(laps.map(l => [l.lap, l]))
+      for (const l of s.lapHistory) map.set(l.lap, l)
+      return { lapHistory: [...map.values()].sort((a, b) => a.lap - b.lap) }
+    }),
+  clearLaps: () => set({ lapHistory: [], currentLap: 0, livePositions: [], engineEvents: [] }),
 
   // Computed strategy stats
   getStrategyStats: () => {

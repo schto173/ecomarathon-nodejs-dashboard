@@ -20,6 +20,7 @@ const TOPICS = [
   'config/start_line',
   'config/lap_line',
   'config/finish_line',
+  'race/engine_event',
 ]
 
 export function useMqtt() {
@@ -114,6 +115,9 @@ export function useMqtt() {
           break
         case 'config/finish_line':
           store.setFinishLine(data)
+          break
+        case 'race/engine_event':
+          store.addEngineEvent(data)
           break
       }
     })
