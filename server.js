@@ -52,19 +52,24 @@ function pub(topic, payload) {
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 
 function loadTrack() {
-  const raw = readFileSync(join(__dirname, 'track.csv'), 'utf8')
-  const lines = raw.trim().split('\n').slice(1)  // skip header
-  return lines.map(line => {
-    const [dist, elev, , , lng, lat] = line.split(',')
-    return { dist: parseFloat(dist), lat: parseFloat(lat), lng: parseFloat(lng), elev: parseFloat(elev) }
-  }).filter(p => isFinite(p.lat) && isFinite(p.lng))
+  const path = join(__dirname, 'track.csv')
+  if (!existsSync(path)) return []
+  try {
+    const raw = readFileSync(path, 'utf8')
+    const lines = raw.trim().split('\n').slice(1)  // skip header
+    return lines.map(line => {
+      const [dist, elev, , , lng, lat] = line.split(',')
+      return { dist: parseFloat(dist), lat: parseFloat(lat), lng: parseFloat(lng), elev: parseFloat(elev) }
+    }).filter(p => isFinite(p.lat) && isFinite(p.lng))
+  } catch { return [] }
 }
 
 const TRACK = loadTrack()
-const TRACK_LEN = TRACK[TRACK.length - 1].dist  // metres
+const TRACK_LEN = TRACK.length ? TRACK[TRACK.length - 1].dist : 0  // metres
 
 // Interpolate a position along the track at distance d (metres, wraps)
 function trackAtDist(d) {
+  if (!TRACK.length) return { lat: 0, lng: 0, heading: 0 }
   const dd = ((d % TRACK_LEN) + TRACK_LEN) % TRACK_LEN
   let lo = 0, hi = TRACK.length - 1
   while (lo < hi - 1) {
