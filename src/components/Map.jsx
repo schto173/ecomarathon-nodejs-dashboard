@@ -101,13 +101,13 @@ function engineEventIcon(ev) {
   return L.divIcon({
     className: '',
     html: `<div style="display:flex;flex-direction:column;align-items:center;gap:1px">
-      <div style="width:16px;height:16px;display:flex;align-items:center;justify-content:center;
-        background:${bg};border:2px solid #fff;border-radius:50%;font-size:9px;color:#fff;
+      <div style="width:18px;height:18px;display:flex;align-items:center;justify-content:center;
+        background:${bg};border:2px solid #fff;border-radius:50%;font-size:10px;color:#fff;
         box-shadow:0 0 6px ${bg}99">${symbol}</div>
-      <div style="background:${bg}dd;color:#fff;font-size:9px;font-weight:bold;padding:1px 4px;
+      <div style="background:${bg}dd;color:#fff;font-size:12px;font-weight:bold;padding:2px 5px;
         border-radius:3px;white-space:nowrap;line-height:1.3">${speed} km/h</div>
     </div>`,
-    iconAnchor: [26, 8], iconSize: [52, 34],
+    iconAnchor: [28, 9], iconSize: [56, 38],
   })
 }
 
