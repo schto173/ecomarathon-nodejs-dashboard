@@ -236,7 +236,7 @@ function MobileDashboard() {
       </div>
 
       {/* Tab content — keep map mounted so it doesn't re-init on tab switch */}
-      <div className={`flex-1 min-h-0 overflow-hidden ${tab === 'map' ? 'flex' : 'hidden'}`}>
+      <div className={`flex-1 min-h-0 overflow-hidden ${tab === 'map' ? 'flex flex-col' : 'hidden'}`}>
         <Map hideOverlays />
       </div>
 
