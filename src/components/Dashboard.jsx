@@ -252,10 +252,10 @@ function MobileDashboard() {
 // ── Root ──────────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768)
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 1000)
 
   useEffect(() => {
-    const handler = () => setIsMobile(window.innerWidth < 768)
+    const handler = () => setIsMobile(window.innerWidth < 1000)
     window.addEventListener('resize', handler)
     return () => window.removeEventListener('resize', handler)
   }, [])
