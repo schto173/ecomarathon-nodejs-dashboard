@@ -405,11 +405,18 @@ function trimLiveArrays() {
         if (!isNaN(n)) latestLap = n
 
       } else if (topic === 'race/last_lap_stats') {
-        // Allow 8 s clock skew between node-red and this server
+        // Primary: match by absolute timestamps (works when clocks are in sync)
         const SKEW = 8000
-        const trail = d.start && d.end
+        let trail = d.start && d.end
           ? positionBuffer.filter(p => p.t >= d.start - SKEW && p.t <= d.end + SKEW)
           : []
+        // Fallback: node-red and server may be on different machines with different clocks.
+        // Use server-side receive time: take the last (duration + 30 s) of buffered positions.
+        if (trail.length < 5 && d.duration) {
+          const windowMs = (d.duration + 30) * 1000
+          const cutoff   = Date.now() - windowMs
+          trail = positionBuffer.filter(p => p.t >= cutoff)
+        }
         const lap = {
           lap:            d.lap,
           duration:       d.duration       ?? 0,

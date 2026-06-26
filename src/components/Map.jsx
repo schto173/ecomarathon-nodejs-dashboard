@@ -348,6 +348,16 @@ export default function Map({ hideOverlays = false }) {
         <MapController trail={displayTrail} />
       </MapContainer>
 
+      {/* No trail message */}
+      {selectedLap && displayTrail.length === 0 && (
+        <div className="absolute inset-0 z-[999] flex items-center justify-center pointer-events-none">
+          <div className="bg-gray-950/90 backdrop-blur border border-gray-700 rounded-xl px-5 py-4 text-center">
+            <div className="text-gray-400 text-sm font-medium mb-1">No GPS trail for lap #{selectedLap.lap}</div>
+            <div className="text-gray-600 text-xs">Trail is recorded live — not available for laps<br/>completed before the server started</div>
+          </div>
+        </div>
+      )}
+
       {/* Replay mode banner */}
       {selectedLap && (
         <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[1000] pointer-events-auto">
