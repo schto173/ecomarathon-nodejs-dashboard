@@ -322,14 +322,8 @@ let latestLap      = 0
 // Lap tracking from race/current_lap transitions (node-red publishes lap stats to InfluxDB only)
 let lapTrack = { lastLap: 0, lastFuelMl: 0, lastTimeMs: 0 }
 
-// Position buffer for per-lap trail extraction — kept 15 min, trimmed after use
+// Position buffer for per-lap trail extraction — kept until session reset
 const positionBuffer = []  // { lat, lng, speed_kmh, t }
-const POS_BUFFER_MS  = 15 * 60 * 1000
-
-function trimPositionBuffer() {
-  const cutoff = Date.now() - POS_BUFFER_MS
-  while (positionBuffer.length && positionBuffer[0].t < cutoff) positionBuffer.shift()
-}
 
 function trimLiveArrays() {
   const cutoff = Date.now() - LIVE_WINDOW_MS
@@ -363,7 +357,6 @@ function trimLiveArrays() {
         const t         = Date.now()
         livePositions.push({ lat, lng, speed_kmh, t })
         positionBuffer.push({ lat, lng, speed_kmh, t })
-        trimPositionBuffer()
         lastPos = { lat, lng, speed_kmh }
         latestPosition = {
           latitude:  lat,
@@ -459,6 +452,7 @@ app.get('/api/state', (_req, res) => {
 app.get('/api/session',        (_req, res) => res.json(sessionLaps))
 app.post('/api/session/reset', (_req, res) => {
   sessionLaps = []
+  positionBuffer.length = 0
   saveSessionToDisk()
   res.json({ ok: true })
 })
