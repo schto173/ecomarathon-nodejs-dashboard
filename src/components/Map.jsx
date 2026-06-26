@@ -327,7 +327,7 @@ export default function Map({ hideOverlays = false }) {
   const initialZoom = savedView ? savedView.zoom : DEFAULT_ZOOM
 
   return (
-    <div className="rounded-xl overflow-hidden border border-gray-800 flex-1 w-full min-h-[320px] relative">
+    <div className="rounded-xl overflow-hidden border border-gray-800 h-full w-full min-h-[320px] relative">
       <MapContainer
         center={initialCenter}
         zoom={initialZoom}
