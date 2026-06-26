@@ -322,8 +322,9 @@ let latestLap      = 0
 // Lap tracking from race/current_lap transitions (node-red publishes lap stats to InfluxDB only)
 let lapTrack = { lastLap: 0, lastFuelMl: 0, lastTimeMs: 0 }
 
-// Position buffer for per-lap trail extraction — kept until session reset
-const positionBuffer = []  // { lat, lng, speed_kmh, t }
+// Position + engine-event buffers for per-lap trail extraction — kept until session reset
+const positionBuffer     = []  // { lat, lng, speed_kmh, t }
+const engineEventBuffer  = []  // { type, lat, lng, speed_kmh, t }
 
 function trimLiveArrays() {
   const cutoff = Date.now() - LIVE_WINDOW_MS
@@ -374,7 +375,9 @@ function trimLiveArrays() {
           const isOn = d.EngineRunning === true
           if (isOn !== engineOn) {
             engineOn = isOn
-            liveEngineEvents.push({ type: isOn ? 'start' : 'stop', ...lastPos, t: Date.now() })
+            const ev = { type: isOn ? 'start' : 'stop', ...lastPos, t: Date.now() }
+            liveEngineEvents.push(ev)
+            engineEventBuffer.push(ev)
             trimLiveArrays()
           }
         }
@@ -417,6 +420,17 @@ function trimLiveArrays() {
           const cutoff   = Date.now() - windowMs
           trail = positionBuffer.filter(p => p.t >= cutoff)
         }
+
+        // Extract engine events for this lap using the same dual strategy
+        let lapEngineEvents = d.start && d.end
+          ? engineEventBuffer.filter(e => e.t >= d.start - SKEW && e.t <= d.end + SKEW)
+          : []
+        if (lapEngineEvents.length === 0 && d.duration) {
+          const windowMs = (d.duration + 30) * 1000
+          const cutoff   = Date.now() - windowMs
+          lapEngineEvents = engineEventBuffer.filter(e => e.t >= cutoff)
+        }
+
         const lap = {
           lap:            d.lap,
           duration:       d.duration       ?? 0,
@@ -429,6 +443,7 @@ function trimLiveArrays() {
           speed:          d.speed          ?? 0,
           projection:     d.projection     ?? 0,
           trail,
+          engineEvents: lapEngineEvents,
         }
         const idx = sessionLaps.findIndex(l => l.lap === lap.lap)
         if (idx >= 0) sessionLaps[idx] = lap
@@ -460,6 +475,7 @@ app.get('/api/session',        (_req, res) => res.json(sessionLaps))
 app.post('/api/session/reset', (_req, res) => {
   sessionLaps = []
   positionBuffer.length = 0
+  engineEventBuffer.length = 0
   saveSessionToDisk()
   res.json({ ok: true })
 })

@@ -310,7 +310,7 @@ export default function Map({ hideOverlays = false }) {
 
   // What to show on the map
   const displayTrail   = selectedLap ? (selectedLap.trail ?? []) : livePositions
-  const displayEngine  = selectedLap ? [] : engineEvents   // engine events only in live mode
+  const displayEngine  = selectedLap ? (selectedLap.engineEvents ?? []) : engineEvents
   const displayPos     = selectedLap ? null : position
 
   const savedView = loadSavedView()
