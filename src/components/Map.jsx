@@ -120,7 +120,15 @@ function MapController({ trail }) {
   const fitted = useRef(false)
 
   useEffect(() => {
-    // Restore saved view or fit to trail once
+    // Use ResizeObserver so invalidateSize fires whenever the container
+    // becomes visible (e.g. switching to the Map tab on mobile)
+    const container = map.getContainer()
+    const ro = new ResizeObserver(() => {
+      map.invalidateSize()
+    })
+    ro.observe(container)
+
+    // Also fire once after a short delay for initial mount
     const id = setTimeout(() => {
       map.invalidateSize()
       const saved = loadSavedView()
@@ -129,7 +137,7 @@ function MapController({ trail }) {
         fitted.current = true
       }
     }, 50)
-    return () => clearTimeout(id)
+    return () => { clearTimeout(id); ro.disconnect() }
   }, [])
 
   // Fit to trail only if no saved view and positions just arrived
