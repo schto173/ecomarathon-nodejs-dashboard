@@ -112,15 +112,35 @@ export const useRaceStore = create((set, get) => ({
   addLap: (data) =>
     set((s) => {
       const map = new Map(s.lapHistory.map(l => [l.lap, l]))
-      map.set(data.lap, data) // live MQTT lap overwrites historical
+      const existing = map.get(data.lap)
+      // MQTT payload never includes trail/engineEvents — keep them from existing entry
+      map.set(data.lap, {
+        ...(existing ?? {}),
+        ...data,
+        trail:        data.trail        ?? existing?.trail,
+        engineEvents: data.engineEvents ?? existing?.engineEvents,
+      })
       return { lapHistory: [...map.values()].sort((a, b) => a.lap - b.lap) }
     }),
-  // Hydrate from InfluxDB on load; live MQTT laps added later take priority
+  // Hydrate from API; incoming laps carry trail/engineEvents — don't let MQTT-cached
+  // copies (which lack trail) silently overwrite them
   setLapHistory: (laps) =>
     set((s) => {
-      const map = new Map(laps.map(l => [l.lap, l]))
-      for (const l of s.lapHistory) map.set(l.lap, l)
-      return { lapHistory: [...map.values()].sort((a, b) => a.lap - b.lap) }
+      const storeMap = new Map(s.lapHistory.map(l => [l.lap, l]))
+      const merged = laps.map(incoming => {
+        const existing = storeMap.get(incoming.lap)
+        return {
+          ...(existing ?? {}),
+          ...incoming,
+          trail:        incoming.trail        ?? existing?.trail,
+          engineEvents: incoming.engineEvents ?? existing?.engineEvents,
+        }
+      })
+      // Add any store laps not present in the incoming list
+      for (const l of s.lapHistory) {
+        if (!merged.find(m => m.lap === l.lap)) merged.push(l)
+      }
+      return { lapHistory: merged.sort((a, b) => a.lap - b.lap) }
     }),
   clearLaps: () => set({ lapHistory: [], currentLap: 0, livePositions: [], engineEvents: [] }),
 
