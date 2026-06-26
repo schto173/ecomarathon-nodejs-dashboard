@@ -20,7 +20,7 @@ export default function SimulatorPage() {
       <div className="flex-1 flex items-start justify-center p-6 overflow-auto">
         <div className="w-80 flex flex-col gap-4">
           <div className="text-sm text-gray-400">
-            Injects telemetry into the store. Open the{' '}
+            Publishes sensor data to MQTT — <span className="font-mono text-gray-300">gps/position</span>, <span className="font-mono text-gray-300">ecu/data</span>, <span className="font-mono text-gray-300">speed/data</span> — exactly as the car does. Open the{' '}
             <a href="#/" className="text-shell-yellow hover:underline">Dashboard</a> to see live data.
           </div>
           <SimulatorControl />

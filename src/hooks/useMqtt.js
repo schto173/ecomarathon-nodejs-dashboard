@@ -13,6 +13,7 @@ const TOPICS = [
   'speed/data',
   'race/laps',
   'race/current_lap',
+  'race/last_lap_stats',
   'race/info_text',
   'config/ideal_lap_time',
   'config/total_laps',
@@ -20,7 +21,6 @@ const TOPICS = [
   'config/start_line',
   'config/lap_line',
   'config/finish_line',
-  'race/engine_event',
 ]
 
 export function useMqtt() {
@@ -59,14 +59,13 @@ export function useMqtt() {
 
       switch (topic) {
         case 'gps/position':
-          // Support both naming conventions (old Node-RED uses lat/lng, new Python uses latitude/longitude)
           store.setPosition({
             latitude: data.latitude ?? data.lat,
             longitude: data.longitude ?? data.lng,
             altitude: data.altitude,
             speed_kmh: data.speed_kmh ?? data.kmh,
             heading: data.heading,
-            timestamp: data.timestamp ?? new Date().toISOString(),
+            timestamp: data.timestamp ?? data.ts ?? new Date().toISOString(),
           })
           break
         case 'gps/status':
@@ -78,22 +77,39 @@ export function useMqtt() {
         case 'speed/data':
           store.setSpeedData(data)
           break
-        case 'race/laps':
-          if (data.event === 'lap_complete' || data.event === 'lap') {
+        case 'race/laps': {
+          // Accept both node-red raw format {lap, duration, ...} and event-wrapped format
+          const raw = data.event
+            ? (data.event === 'lap_complete' || data.event === 'lap' ? data : null)
+            : data
+          if (raw && (raw.lap != null || raw.lap_number != null)) {
             store.addLap({
-              lap: data.lap_number ?? data.lap,
-              duration: data.duration_seconds ?? data.duration,
-              fuel_lap: data.fuel_lap ?? 0,
-              fuel_race: data.fuel_race ?? 0,
-              distance: data.distance ?? 0,
-              speed: data.speed ?? 0,
-              projection: data.projection ?? 0,
-              lap_ideal_diff: data.lap_ideal_diff ?? 0,
+              lap: raw.lap_number ?? raw.lap,
+              duration: raw.duration_seconds ?? raw.duration ?? 0,
+              fuel_lap: raw.fuel_lap ?? 0,
+              fuel_race: raw.fuel_race ?? 0,
+              distance: raw.distance ?? 0,
+              speed: raw.speed ?? 0,
+              projection: raw.projection ?? 0,
+              lap_ideal_diff: raw.lap_ideal_diff ?? 0,
             })
           }
           break
+        }
         case 'race/current_lap':
           store.setCurrentLap(Number(data) || 0)
+          break
+        case 'race/last_lap_stats':
+          store.addLap({
+            lap:            data.lap,
+            duration:       data.duration       ?? 0,
+            lap_ideal_diff: data.lap_ideal_diff ?? 0,
+            fuel_lap:       data.fuel_lap       ?? 0,
+            fuel_race:      data.fuel_race      ?? 0,
+            distance:       data.distance       ?? 0,
+            speed:          data.speed          ?? 0,
+            projection:     data.projection     ?? 0,
+          })
           break
         case 'race/info_text':
           store.setInfoText(typeof data === 'string' ? data : JSON.stringify(data))
@@ -115,9 +131,6 @@ export function useMqtt() {
           break
         case 'config/finish_line':
           store.setFinishLine(data)
-          break
-        case 'race/engine_event':
-          store.addEngineEvent(data)
           break
       }
     })

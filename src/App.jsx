@@ -34,11 +34,11 @@ export default function App() {
   useEffect(() => {
     const store = useRaceStore.getState()
 
-    // Seed historical laps once on load
-    fetch('/api/laps')
+    // Seed session laps on load (server holds them in memory until reset)
+    fetch('/api/session')
       .then(r => r.json())
       .then(laps => { if (Array.isArray(laps) && laps.length > 0) store.setLapHistory(laps) })
-      .catch(err => console.warn('laps:', err))
+      .catch(err => console.warn('session:', err))
 
     // Poll server every second — live positions, engine events, state snapshot
     function pollAll() {
@@ -53,7 +53,7 @@ export default function App() {
       fetchLive()
     }
     pollAll()
-    const timer = setInterval(pollAll, 1_000)
+    const timer = setInterval(pollAll, 500)
     return () => clearInterval(timer)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 

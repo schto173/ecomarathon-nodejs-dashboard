@@ -8,27 +8,6 @@ const app = express()
 app.use(express.json())
 const PORT = process.env.PORT || 80
 
-// ── InfluxDB ───────────────────────────────────────────────────────────────
-const INFLUX_URL   = 'https://influxdb.tome.lu'
-const INFLUX_TOKEN = 'FoFKAJiFX8GWZ6hFLcm79Zhr3vcGBkG8knENHC8f55089vi5Gt4LOTPxJHy2uVKyAxWfp5ilaKpVTqLeOt5Jow=='
-const INFLUX_DB    = 'ice'
-
-async function influxQuery(query) {
-  const url = `${INFLUX_URL}/query?db=${encodeURIComponent(INFLUX_DB)}&q=${encodeURIComponent(query)}`
-  const res = await fetch(url, { headers: { Authorization: `Token ${INFLUX_TOKEN}` } })
-  if (!res.ok) throw new Error(`InfluxDB ${res.status}: ${await res.text()}`)
-  return res.json()
-}
-
-function seriesRows(data, idx = 0) {
-  const series = data.results?.[0]?.series?.[idx]
-  if (!series) return []
-  const cols = series.columns
-  return series.values.map(v => {
-    const o = {}; cols.forEach((c, i) => { o[c] = v[i] }); return o
-  })
-}
-
 // ── Speed colour (same as client) ─────────────────────────────────────────
 const SPEED_STOPS = [
   { t: 0,    r: 30,  g: 58,  b: 180 },
@@ -50,269 +29,191 @@ function speedColor(kmh) {
   return `rgb(${Math.round(lo.r+(hi.r-lo.r)*f)},${Math.round(lo.g+(hi.g-lo.g)*f)},${Math.round(lo.b+(hi.b-lo.b)*f)})`
 }
 
-function positionsToSegments(rows) {
-  const segments = []
-  for (let i = 1; i < rows.length; i++) {
-    const a = rows[i-1], b = rows[i]
-    if (a.lat == null || b.lat == null) continue
-    const color = speedColor(b.kmh ?? b.speed_kmh)
-    const last = segments[segments.length-1]
-    if (last && last.color === color) last.positions.push([b.lat, b.lng])
-    else segments.push({ color, positions: [[a.lat, a.lng], [b.lat, b.lng]] })
-  }
-  return segments
-}
-
-// ── Track geometry helpers ─────────────────────────────────────────────────
-// Derive lap-line (the crossing perpendicular) from the first few positions
-function deriveLapLine(positions) {
-  // Find first two positions — they define the track direction at lap start
-  const pts = positions.filter(p => p.lat && p.lng).slice(0, 8)
-  if (pts.length < 2) return null
-  // Direction vector (average over first few)
-  const dlat = pts[pts.length-1].lat - pts[0].lat
-  const dlng = pts[pts.length-1].lng - pts[0].lng
-  const len   = Math.sqrt(dlat*dlat + dlng*dlng) || 1
-  // Perpendicular: rotate 90°
-  const plat =  dlng / len, plng = -dlat / len
-  // Scale perpendicular to ~12m on each side
-  // At lat 50.53°: 1°lat≈111000m, 1°lng≈70700m
-  const scale = 0.00012 / (Math.sqrt((plat*111000)**2 + (plng*70700)**2) / 111000 || 1)
-  const cx = pts[0].lat, cy = pts[0].lng
-  return [
-    [cx + plat * scale * 111000 / 111000, cy + plng * scale * 70700 / 70700],
-    [cx - plat * scale * 111000 / 111000, cy - plng * scale * 70700 / 70700],
-  ]
-}
-
-// Detect corners: positions where heading changes > threshold over a sliding window
-function detectCorners(positions, windowSize = 8, threshDeg = 25, minDistM = 80) {
-  const corners = []
-  let lastCornerIdx = -minDistM
-
-  function heading(a, b) {
-    return Math.atan2(b.lng - a.lng, b.lat - a.lat) * 180 / Math.PI
-  }
-  function angleDiff(a, b) {
-    let d = b - a; if (d > 180) d -= 360; if (d < -180) d += 360; return d
-  }
-  function distM(a, b) {
-    const dlat = (b.lat - a.lat) * 111000
-    const dlng = (b.lng - a.lng) * 70700
-    return Math.sqrt(dlat*dlat + dlng*dlng)
-  }
-
-  for (let i = windowSize; i < positions.length - windowSize; i++) {
-    const h1 = heading(positions[i - windowSize], positions[i])
-    const h2 = heading(positions[i], positions[i + windowSize])
-    const turn = angleDiff(h1, h2)
-
-    // Approximate distance from last corner
-    const estDist = (i - lastCornerIdx) * 1.3  // ~1.3m per position at 3 Hz, 65 km/h
-    if (Math.abs(turn) > threshDeg && estDist > minDistM) {
-      corners.push({ lat: positions[i].lat, lng: positions[i].lng })
-      lastCornerIdx = i
-    }
-  }
-  return corners
-}
-
-// ── Last race loader ───────────────────────────────────────────────────────
-async function loadLastRace() {
-  // 1. Fetch all recent laps, exclude pit-stop laps (duration > 600s)
-  const lapsData = await influxQuery(
-    'SELECT * FROM laps WHERE time > now() - 48h ORDER BY time ASC'
-  )
-  const allLaps = seriesRows(lapsData).filter(l => l.duration != null && l.duration < 600)
-
-  if (!allLaps.length) throw new Error('No race laps found in last 48 h')
-
-  // 2. Walk backward from end to find where the last race begins (gap > 5 min)
-  let raceStart = 0
-  for (let i = allLaps.length - 1; i > 0; i--) {
-    const gap = (allLaps[i].start - allLaps[i-1].end) / 1000  // seconds
-    if (gap > 300) { raceStart = i; break }
-  }
-  const raceLaps = allLaps.slice(raceStart)
-  const t0ms = raceLaps[0].start                      // race start (Unix ms)
-  const t1ms = raceLaps[raceLaps.length-1].end + 5000 // a bit after last lap end
-
-  const t0 = new Date(t0ms).toISOString()
-  const t1 = new Date(t1ms).toISOString()
-
-  // 3. Fetch positions for the race time window
-  const posData = await influxQuery(
-    `SELECT lat, lng, speed_kmh, kmh, alt, heading FROM positions_tagged ` +
-    `WHERE time >= '${t0}' AND time <= '${t1}' ORDER BY time ASC`
-  )
-  const positions = seriesRows(posData).filter(p => p.lat && p.lng)
-
-  // 4. Derive ideal lap time from first lap's cumulative diff
-  //    ideal = duration - (cumulative_diff / lap_number)   → per-lap ideal constant
-  const idealLapTime = Math.round(raceLaps[0].duration - raceLaps[0].lap_ideal_diff)
-
-  // 5. Derive track config from position data
-  const lapLine = deriveLapLine(positions)
-  const corners = detectCorners(positions)
-
-  return { raceLaps, positions, idealLapTime, lapLine, corners, t0ms, t1ms }
-}
-
 // ── MQTT publisher ─────────────────────────────────────────────────────────
 const MQTT_URL  = 'wss://mqtt-ws.tome.lu'
 const MQTT_USER = 'eco'
 const MQTT_PASS = 'marathon'
 
-let mqttPub = null
-function getPub() {
-  if (mqttPub?.connected) return mqttPub
-  mqttPub = mqtt.connect(MQTT_URL, {
-    clientId: `eco-srv-${Math.random().toString(16).slice(2,8)}`,
-    clean: true, reconnectPeriod: 3000,
-    username: MQTT_USER, password: MQTT_PASS,
-  })
-  mqttPub.on('connect', () => console.log('MQTT publisher connected'))
-  mqttPub.on('error',   e  => console.error('MQTT pub error:', e.message))
-  return mqttPub
-}
+const mqttPub = mqtt.connect(MQTT_URL, {
+  clientId: `eco-srv-${Math.random().toString(16).slice(2,8)}`,
+  clean: true, reconnectPeriod: 3000,
+  username: MQTT_USER, password: MQTT_PASS,
+})
+mqttPub.on('connect', () => console.log('MQTT publisher connected'))
+mqttPub.on('error',   e  => console.error('MQTT pub error:', e.message))
 
 function pub(topic, payload) {
-  const client = getPub()
+  if (!mqttPub.connected) return  // drop silently while reconnecting
   const str = typeof payload === 'string' ? payload : JSON.stringify(payload)
-  client.publish(topic, str, { qos: 0, retain: false })
+  mqttPub.publish(topic, str, { qos: 0, retain: false })
 }
 
-// ── Simulator ──────────────────────────────────────────────────────────────
+// ── Track data — loaded once from track.csv ───────────────────────────────
+import { readFileSync } from 'fs'
+
+function loadTrack() {
+  const raw = readFileSync(join(__dirname, 'track.csv'), 'utf8')
+  const lines = raw.trim().split('\n').slice(1)  // skip header
+  return lines.map(line => {
+    const [dist, elev, , , lng, lat] = line.split(',')
+    return { dist: parseFloat(dist), lat: parseFloat(lat), lng: parseFloat(lng), elev: parseFloat(elev) }
+  }).filter(p => isFinite(p.lat) && isFinite(p.lng))
+}
+
+const TRACK = loadTrack()
+const TRACK_LEN = TRACK[TRACK.length - 1].dist  // metres
+
+// Interpolate a position along the track at distance d (metres, wraps)
+function trackAtDist(d) {
+  const dd = ((d % TRACK_LEN) + TRACK_LEN) % TRACK_LEN
+  let lo = 0, hi = TRACK.length - 1
+  while (lo < hi - 1) {
+    const mid = (lo + hi) >> 1
+    if (TRACK[mid].dist <= dd) lo = mid; else hi = mid
+  }
+  const a = TRACK[lo], b = TRACK[Math.min(lo + 1, TRACK.length - 1)]
+  const f = b.dist > a.dist ? (dd - a.dist) / (b.dist - a.dist) : 0
+  const lat = a.lat + (b.lat - a.lat) * f
+  const lng = a.lng + (b.lng - a.lng) * f
+  // heading from direction of travel
+  const dlat = (b.lat - a.lat) * 111000
+  const dlng = (b.lng - a.lng) * 71000
+  const heading = (Math.atan2(dlng, dlat) * 180 / Math.PI + 360) % 360
+  return { lat, lng, heading }
+}
+
+// ── Simulator — replays last recorded race via MQTT (Pi scripts only) ───────
 const sim = {
-  state:     'stopped',  // 'playing' | 'paused' | 'stopped'
+  state:     'stopped',
   events:    [],
   cursor:    0,
-  startedAt: 0,          // real ms when this play segment began
-  offsetMs:  0,          // virtual ms already elapsed before this segment
+  startedAt: 0,
+  offsetMs:  0,
   timer:     null,
 
   virtualNow() {
     return this.state === 'playing' ? this.offsetMs + (Date.now() - this.startedAt) : this.offsetMs
   },
 
-  async load() {
-    console.log('Loading race data from InfluxDB…')
-    const { raceLaps, positions, idealLapTime, lapLine, corners } = await loadLastRace()
+  load() {
+    // Shell EcoMarathon pulse-and-glide:
+    // Pulse-and-glide directly over CSV track points (1m resolution, no interpolation)
+    // Engine ON → accelerate 20→38 km/h, Engine OFF → coast 38→20 km/h
+    const LAPS     = 7
+    const MIN_KMH  = 20
+    const MAX_KMH  = 38
+    const ACCEL    = 0.8   // m/s²
+    const COAST    = 0.25  // m/s²
+    const DT       = 0.05  // seconds per tick (50 ms)
 
-    // Publish track config (once on load — client will receive when listening)
-    this._config = { raceLaps, idealLapTime, lapLine, corners }
-
-    // Build sorted event timeline
-    const t0 = new Date(positions[0].time).getTime()
-    const events = []
-
-    // GPS + speed events
-    for (const p of positions) {
-      const vt = new Date(p.time).getTime() - t0
-      const kmh = p.speed_kmh ?? p.kmh ?? 0
-      events.push({ vt, topic: 'gps/position', payload: {
-        latitude: p.lat, longitude: p.lng,
-        altitude: p.alt ?? 0, speed_kmh: kmh,
-        heading: p.heading ?? 0, timestamp: p.time,
-      }})
-      events.push({ vt, topic: 'speed/data', payload: { rpm: kmh / 0.0894 } })
-    }
-
-    // Lap change events — detect when lap tag changes in positions
-    // (We derive this from laps measurement timing instead)
-    let lapIdx = 0
-    for (const p of positions) {
-      const ms = new Date(p.time).getTime()
-      // Check if a lap was completed at this time
-      while (lapIdx < raceLaps.length && raceLaps[lapIdx].end <= ms) {
-        const lap = raceLaps[lapIdx]
-        const vt  = lap.end - (new Date(positions[0].time).getTime())
-        events.push({ vt, topic: 'race/laps', payload: {
-          event: 'lap_complete',
-          lap_number:       lap.lap,
-          duration_seconds: lap.duration,
-          fuel_lap:         lap.fuel_lap ?? 0,
-          fuel_race:        lap.fuel_race ?? 0,
-          speed:            lap.speed ?? 0,
-          lap_ideal_diff:   lap.lap_ideal_diff ?? 0,
-          distance:         lap.distance ?? 0,
-          projection:       lap.projection ?? 0,
-        }})
-        events.push({ vt, topic: 'race/current_lap', payload: String(lap.lap + 1) })
-        lapIdx++
-      }
-    }
-
-    // Synthetic ECU — derived from speed (ECU data too sparse for direct replay)
+    const events   = []
     let ect = 20, fuelTotal = 0
-    let lastEcuVt = -1000
-    for (const p of positions) {
-      const vt  = new Date(p.time).getTime() - t0
-      if (vt - lastEcuVt < 500) continue  // emit ECU at ~2 Hz
-      lastEcuVt = vt
-      const kmh  = p.speed_kmh ?? p.kmh ?? 0
-      const engineOn = kmh >= 26.82
-      const fuelRate = engineOn ? 3.8 + Math.sin(vt * 0.001) * 0.6 : 0
-      fuelTotal += fuelRate * 0.5 / 60 * (1000 / 750)  // 0.5 s interval
-      ect = Math.min(90, Math.max(18, ect + (engineOn ? 0.06 : -0.025)))
-      events.push({ vt, topic: 'ecu/data', payload: {
-        ECT: Math.round(ect * 10) / 10,
-        IAT: 24,
-        MAP: engineOn ? 90 + Math.sin(vt*0.002)*10 : 35,
-        TPS: engineOn ? 30 + Math.sin(vt*0.003)*15 : 0,
-        SPARK: engineOn ? 18 : 0,
-        O2S:  engineOn ? 0.45 : 0,
-        RPM:  kmh / 0.0894,
-        FuelConsumption_g_min: fuelRate,
-        FuelTotal_ml: Math.round(fuelTotal * 10) / 10,
-        EngineRunning: engineOn,
-      }})
-    }
+    let lastGpsVt   = -1000
+    let lastSpeedVt = -250
+    let lastEcuVt   = -200
 
-    // Engine on/off events — detect RPM threshold crossings
-    const ENGINE_RPM = 300
-    let prevEngineOn = false
-    for (const p of positions) {
-      const vt = new Date(p.time).getTime() - t0
-      const kmh = p.speed_kmh ?? p.kmh ?? 0
-      const isOn = kmh >= 26.82  // RPM 300 threshold, same as client
-      if (isOn !== prevEngineOn) {
-        events.push({ vt, topic: 'race/engine_event', payload: {
-          type: isOn ? 'start' : 'stop',
-          lat: p.lat, lng: p.lng,
-          speed_kmh: kmh,
-          t: new Date(p.time).getTime(),
-        }})
-        prevEngineOn = isOn
+    let speedMs   = MIN_KMH / 3.6
+    let trackIdx  = 0
+    let lapsDone  = 0
+    let subMeter  = 0     // fractional metres accumulated
+    let engineOn  = true
+    let ms        = 0
+
+    while (lapsDone < LAPS) {
+      // Pulse-and-glide state machine
+      if (engineOn) {
+        speedMs = Math.min(MAX_KMH / 3.6, speedMs + ACCEL * DT)
+        if (speedMs >= MAX_KMH / 3.6) engineOn = false
+      } else {
+        speedMs = Math.max(MIN_KMH / 3.6, speedMs - COAST * DT)
+        if (speedMs <= MIN_KMH / 3.6) engineOn = true
       }
+
+      // Advance through CSV points
+      subMeter += speedMs * DT
+      while (subMeter >= 1.0) {
+        subMeter -= 1.0
+        trackIdx++
+        if (trackIdx >= TRACK.length) {
+          trackIdx = 0
+          lapsDone++
+          if (lapsDone >= LAPS) break
+        }
+      }
+      if (lapsDone >= LAPS) break
+
+      const kmh = speedMs * 3.6
+      const pt  = TRACK[trackIdx]
+      const next = TRACK[(trackIdx + 1) % TRACK.length]
+      const dlat = (next.lat - pt.lat) * 111000
+      const dlng = (next.lng - pt.lng) * 71000
+      const heading = (Math.atan2(dlng, dlat) * 180 / Math.PI + 360) % 360
+
+      // gps/position ~1 Hz
+      if (ms - lastGpsVt >= 1000) {
+        lastGpsVt = ms
+        events.push({ vt: ms, topic: 'gps/position', payload: {
+          lat: pt.lat, lng: pt.lng,
+          speed_kmh: Math.round(kmh * 10) / 10,
+          heading,
+          ts: new Date(Date.now() + ms).toISOString(),
+        }})
+      }
+
+      // speed/data ~4 Hz
+      if (ms - lastSpeedVt >= 250) {
+        lastSpeedVt = ms
+        events.push({ vt: ms, topic: 'speed/data', payload: {
+          rpm: Math.round(kmh / 0.0894),
+          running: engineOn,
+        }})
+      }
+
+      // ecu/data ~5 Hz
+      if (ms - lastEcuVt >= 200) {
+        const dt = (ms - lastEcuVt) / 1000
+        lastEcuVt = ms
+        const rpm       = kmh / 0.0894
+        const cycleMs   = engineOn ? (60000 / (rpm / 2)) : Infinity
+        const fuelpw    = engineOn ? Math.min(cycleMs, 4.2) : 0
+        const dutyCycle = engineOn ? Math.min(1, fuelpw / cycleMs) : 0
+        const fuelRate  = engineOn ? 38 * dutyCycle : 0
+        fuelTotal += (fuelRate / 60) * dt / 0.75
+        ect = Math.min(90, Math.max(18, ect + (engineOn ? 0.06 : -0.025)))
+        events.push({ vt: ms, topic: 'ecu/data', payload: {
+          RPM:    Math.round(rpm),
+          MAP:    engineOn ? Math.round(90 + Math.sin(ms*0.002)*10) : 35,
+          TPS:    engineOn ? Math.round((30 + Math.sin(ms*0.003)*15)*10)/10 : 0,
+          ECT:    Math.round(ect * 10) / 10,
+          IAT:    24,
+          O2S:    engineOn ? 0.45 : 0,
+          SPARK:  engineOn ? 18 : 0,
+          FUELPW1: Math.round(fuelpw * 1000) / 1000,
+          FUELPW2: 0,
+          UbAdc:  12.4,
+          FuelConsumption_g_min: Math.round(fuelRate * 100) / 100,
+          FuelTotal_ml: Math.round(fuelTotal * 10) / 10,
+          EngineRunning: engineOn,
+          StuckCount: 0,
+        }})
+      }
+
+      ms += 50
     }
 
-    events.sort((a, b) => a.vt - b.vt)
-    this.events = events
-    this.cursor = 0
-    this.offsetMs = 0
-    console.log(`Loaded ${events.length} simulator events spanning ${Math.round((events[events.length-1]?.vt ?? 0)/1000)}s`)
+    this.events       = events
+    this.cursor       = 0
+    this.offsetMs     = 0
+    this._simEngineOn = false
+    this._simLastPos  = null
+    console.log(`Sim loaded: ${events.length} events, ${LAPS} laps, ${Math.round(ms/1000)}s`)
   },
 
-  publishConfig() {
-    const { raceLaps, idealLapTime, lapLine, corners } = this._config ?? {}
-    if (idealLapTime) pub('config/ideal_lap_time', String(idealLapTime))
-    pub('config/total_laps', String(raceLaps?.length ?? 6))
-    if (lapLine) {
-      pub('config/lap_line',    JSON.stringify(lapLine))
-      pub('config/start_line',  JSON.stringify(lapLine))
-      pub('config/finish_line', JSON.stringify(lapLine))
-    }
-    if (corners?.length) pub('config/corners', JSON.stringify(corners))
-    pub('race/current_lap', '1')
-  },
-
-  async play() {
+  play() {
     if (this.state === 'playing') return
-    if (!this.events.length) await this.load()
-    this.state     = 'playing'
+    if (!this.events.length) this.load()
+    this.state = 'playing'
     this.startedAt = Date.now()
-    this.publishConfig()
     this._tick()
   },
 
@@ -328,32 +229,44 @@ const sim = {
     this.state    = 'stopped'
     this.cursor   = 0
     this.offsetMs = 0
-    this.events   = []  // force reload on next play
+    this.events   = []
   },
 
   _tick() {
     if (this.state !== 'playing') return
-    const now = this.virtualNow()
+    try {
+      const now = this.virtualNow()
+      while (this.cursor < this.events.length && this.events[this.cursor].vt <= now) {
+        const ev = this.events[this.cursor++]
+        pub(ev.topic, ev.payload)
 
-    while (this.cursor < this.events.length && this.events[this.cursor].vt <= now) {
-      const ev = this.events[this.cursor++]
-      pub(ev.topic, ev.payload)
-      // Populate live arrays directly — avoids MQTT round-trip latency
-      if (ev.topic === 'race/engine_event' && ev.payload.lat) {
-        liveEngineEvents.push({ ...ev.payload, t: Date.now() })
-        trimLiveArrays()
+        // Track last GPS position published by sim (exact position, no MQTT round-trip lag)
+        if (ev.topic === 'gps/position') {
+          this._simLastPos = { lat: ev.payload.lat, lng: ev.payload.lng, speed_kmh: ev.payload.speed_kmh }
+        }
+
+        // Detect engine transitions directly — place marker at exact GPS position
+        if (ev.topic === 'ecu/data' && this._simLastPos) {
+          const isOn = ev.payload.EngineRunning === true
+          if (isOn !== this._simEngineOn) {
+            this._simEngineOn = isOn
+            liveEngineEvents.push({ type: isOn ? 'start' : 'stop', ...this._simLastPos, t: Date.now() })
+            trimLiveArrays()
+          }
+        }
       }
+      if (this.cursor >= this.events.length) {
+        console.log('Simulation complete')
+        this.state = 'stopped'
+        return
+      }
+      const next  = this.events[this.cursor]
+      const delay = Math.max(4, Math.min(50, next.vt - now))
+      this.timer  = setTimeout(() => this._tick(), delay)
+    } catch (e) {
+      console.error('Sim tick error:', e.message)
+      this.timer = setTimeout(() => this._tick(), 100)
     }
-
-    if (this.cursor >= this.events.length) {
-      console.log('Simulation complete')
-      this.state = 'stopped'
-      return
-    }
-
-    const next  = this.events[this.cursor]
-    const delay = Math.max(4, Math.min(50, next.vt - now))
-    this.timer  = setTimeout(() => this._tick(), delay)
   },
 
   status() {
@@ -365,88 +278,35 @@ const sim = {
       virtualMs:   this.virtualNow(),
     }
   },
+
 }
 
 // ── Simulator API ──────────────────────────────────────────────────────────
 app.get('/api/sim/status', (_req, res) => res.json(sim.status()))
 
-app.post('/api/sim/play', async (req, res) => {
-  try { await sim.play(); res.json(sim.status()) }
-  catch (e) { console.error('sim play:', e); res.status(500).json({ error: e.message }) }
+app.post('/api/sim/play', (req, res) => {
+  try { sim.play(); res.json(sim.status()) }
+  catch (e) { console.error('sim play:', e.message); res.status(500).json({ error: e.message }) }
 })
 
 app.post('/api/sim/pause', (_req, res) => { sim.pause(); res.json(sim.status()) })
 app.post('/api/sim/stop',  (_req, res) => { sim.stop();  res.json(sim.status()) })
 
-// ── Laps API — last race only ──────────────────────────────────────────────
-app.get('/api/laps', async (req, res) => {
-  try {
-    const lapsData = await influxQuery(
-      'SELECT * FROM laps WHERE time > now() - 48h ORDER BY time ASC'
-    )
-    const allLaps = seriesRows(lapsData).filter(l => l.duration != null && l.duration < 600)
-
-    // Find last race boundary
-    let raceStart = 0
-    for (let i = allLaps.length - 1; i > 0; i--) {
-      const gap = (allLaps[i].start - allLaps[i-1].end) / 1000
-      if (gap > 300) { raceStart = i; break }
-    }
-
-    const rows = allLaps.slice(raceStart).map(obj => ({
-      lap: obj.lap, duration: obj.duration,
-      fuel_lap: obj.fuel_lap ?? 0, fuel_race: obj.fuel_race ?? 0,
-      distance: obj.distance ?? 0, speed: obj.speed ?? 0,
-      projection: obj.projection ?? 0, lap_ideal_diff: obj.lap_ideal_diff ?? 0,
-      time: obj.time,
-    }))
-    res.json(rows)
-  } catch (e) { res.status(500).json({ error: e.message }) }
-})
-
-// ── Trail API — current lap, pre-computed segments ─────────────────────────
-app.get('/api/trail', async (req, res) => {
-  try {
-    const posData = await influxQuery(
-      'SELECT lat, lng, speed_kmh, kmh FROM positions_tagged WHERE time > now() - 5m ORDER BY time ASC'
-    )
-    const segments = positionsToSegments(seriesRows(posData))
-    res.json({ segments })
-  } catch (e) { res.status(500).json({ error: e.message }) }
-})
-
-// ── State API — latest snapshot (cached 2 s to avoid hammering InfluxDB) ──
-let _stateCache = null
-let _stateCacheAt = 0
-app.get('/api/state', async (req, res) => {
-  try {
-    if (_stateCache && Date.now() - _stateCacheAt < 2000) {
-      return res.json(_stateCache)
-    }
-    const [posData, ecuData, lapData] = await Promise.all([
-      influxQuery('SELECT LAST(lat) AS lat, LAST(lng) AS lng, LAST(speed_kmh) AS speed_kmh, LAST(kmh) AS kmh, LAST(alt) AS alt FROM positions_tagged'),
-      influxQuery('SELECT LAST(ECT) AS ECT, LAST(IAT) AS IAT, LAST(MAP) AS MAP, LAST(TPS) AS TPS, LAST(SPARK) AS SPARK, LAST(O2S) AS O2S, LAST(RPM) AS RPM, LAST(FuelConsumption_g_min) AS FuelConsumption_g_min, LAST(FuelTotal_ml) AS FuelTotal_ml, LAST(EngineRunning) AS EngineRunning FROM ecu'),
-      influxQuery('SELECT LAST(lap) AS lap FROM laps WHERE time > now() - 48h AND duration < 600'),
-    ])
-
-    const pos = seriesRows(posData)[0] ?? null
-    const ecu = seriesRows(ecuData)[0] ?? null
-    const lapRow = seriesRows(lapData)[0] ?? null
-
-    _stateCache = {
-      position: pos ? { latitude: pos.lat, longitude: pos.lng, speed_kmh: pos.speed_kmh ?? pos.kmh ?? 0, altitude: pos.alt, timestamp: pos.time } : null,
-      ecuData:  ecu ? { ECT: ecu.ECT, IAT: ecu.IAT, MAP: ecu.MAP, TPS: ecu.TPS, SPARK: ecu.SPARK, O2S: ecu.O2S, RPM: ecu.RPM, FuelConsumption_g_min: ecu.FuelConsumption_g_min, FuelTotal_ml: ecu.FuelTotal_ml, EngineRunning: ecu.EngineRunning } : null,
-      currentLap: lapRow?.lap ?? null,
-    }
-    _stateCacheAt = Date.now()
-    res.json(_stateCache)
-  } catch (e) { res.status(500).json({ error: e.message }) }
-})
+// ── Session store — laps received from race/laps MQTT ─────────────────────
+let sessionLaps = []
 
 // ── Live rolling arrays — fed by MQTT subscriber ──────────────────────────
 const LIVE_WINDOW_MS = 160_000
 const livePositions    = []  // { lat, lng, speed_kmh, t }
 const liveEngineEvents = []  // { type, lat, lng, speed_kmh, t }
+
+// Latest state from MQTT — used by /api/state
+let latestPosition = null  // { latitude, longitude, speed_kmh, heading, timestamp }
+let latestEcuData  = null  // full ecu/data payload
+let latestLap      = 0
+
+// Lap tracking from race/current_lap transitions (node-red publishes lap stats to InfluxDB only)
+let lapTrack = { lastLap: 0, lastFuelMl: 0, lastTimeMs: 0 }
 
 function trimLiveArrays() {
   const cutoff = Date.now() - LIVE_WINDOW_MS
@@ -455,7 +315,6 @@ function trimLiveArrays() {
 }
 
 ;(function startLiveSubscriber() {
-  const ENGINE_RPM = 300
   let lastPos  = null
   let engineOn = false
 
@@ -464,33 +323,89 @@ function trimLiveArrays() {
     clean: true, reconnectPeriod: 5000,
     username: MQTT_USER, password: MQTT_PASS,
   })
-  sub.on('connect', () => sub.subscribe(['gps/position', 'speed/data'], { qos: 0 }))
+
+  sub.on('connect', () => {
+    sub.subscribe(['gps/position', 'ecu/data', 'race/laps', 'race/current_lap', 'race/last_lap_stats'], { qos: 0 })
+    console.log('Live subscriber connected')
+  })
+
   sub.on('message', (topic, payload) => {
     try {
       const d = JSON.parse(payload.toString())
+
       if (topic === 'gps/position') {
-        const lat = d.latitude ?? d.lat
-        const lng = d.longitude ?? d.lng
+        const lat       = d.latitude ?? d.lat
+        const lng       = d.longitude ?? d.lng
         const speed_kmh = d.speed_kmh ?? d.kmh ?? 0
-        const t = Date.now()
+        const t         = Date.now()
         livePositions.push({ lat, lng, speed_kmh, t })
         lastPos = { lat, lng, speed_kmh }
-        trimLiveArrays()
-      } else if (topic === 'speed/data' && lastPos && sim.state !== 'playing') {
-        // Engine detection only for live car — sim injects its own engine events
-        const rpm = d.rpm ?? 0
-        const isOn = rpm >= ENGINE_RPM
-        if (isOn !== engineOn) {
-          engineOn = isOn
-          const ev = { type: isOn ? 'start' : 'stop', ...lastPos, t: Date.now() }
-          liveEngineEvents.push(ev)
-          trimLiveArrays()
+        latestPosition = {
+          latitude:  lat,
+          longitude: lng,
+          speed_kmh,
+          heading:   d.heading ?? 0,
+          timestamp: d.timestamp ?? d.ts ?? new Date().toISOString(),
         }
+        trimLiveArrays()
+
+      } else if (topic === 'ecu/data') {
+        latestEcuData = d
+        if (lastPos) {
+          // EngineRunning set by the ECU script (handles stuck RPM, thresholds)
+          const isOn = d.EngineRunning === true
+          if (isOn !== engineOn) {
+            engineOn = isOn
+            liveEngineEvents.push({ type: isOn ? 'start' : 'stop', ...lastPos, t: Date.now() })
+            trimLiveArrays()
+          }
+        }
+
+      } else if (topic === 'race/laps') {
+        // Accept both node-red raw format {lap, duration, ...} and event-wrapped format
+        const raw = d.event ? (d.event === 'lap_complete' || d.event === 'lap' ? d : null) : d
+        if (raw && (raw.lap != null || raw.lap_number != null)) {
+          const lap = {
+            lap:            raw.lap_number ?? raw.lap,
+            duration:       raw.duration_seconds ?? raw.duration ?? 0,
+            fuel_lap:       raw.fuel_lap       ?? 0,
+            fuel_race:      raw.fuel_race      ?? 0,
+            distance:       raw.distance       ?? 0,
+            speed:          raw.speed          ?? 0,
+            lap_ideal_diff: raw.lap_ideal_diff ?? 0,
+            projection:     raw.projection     ?? 0,
+          }
+          const idx = sessionLaps.findIndex(l => l.lap === lap.lap)
+          if (idx >= 0) sessionLaps[idx] = lap
+          else sessionLaps.push(lap)
+          sessionLaps.sort((a, b) => a.lap - b.lap)
+        }
+
+      } else if (topic === 'race/current_lap') {
+        const n = parseInt(payload.toString(), 10)
+        if (!isNaN(n)) latestLap = n
+
+      } else if (topic === 'race/last_lap_stats') {
+        const lap = {
+          lap:            d.lap,
+          duration:       d.duration       ?? 0,
+          lap_ideal_diff: d.lap_ideal_diff ?? 0,
+          start:          d.start          ?? 0,
+          end:            d.end            ?? 0,
+          fuel_lap:       d.fuel_lap       ?? 0,
+          fuel_race:      d.fuel_race      ?? 0,
+          distance:       d.distance       ?? 0,
+          speed:          d.speed          ?? 0,
+          projection:     d.projection     ?? 0,
+        }
+        const idx = sessionLaps.findIndex(l => l.lap === lap.lap)
+        if (idx >= 0) sessionLaps[idx] = lap
+        else sessionLaps.push(lap)
+        sessionLaps.sort((a, b) => a.lap - b.lap)
       }
     } catch {}
   })
 })()
-
 
 // ── Live data API ──────────────────────────────────────────────────────────
 app.get('/api/live', (_req, res) => {
@@ -498,11 +413,39 @@ app.get('/api/live', (_req, res) => {
   res.json({ positions: livePositions, engineEvents: liveEngineEvents })
 })
 
-// Serve built React app
+// ── State API — latest snapshot from in-memory MQTT state ─────────────────
+app.get('/api/state', (_req, res) => {
+  res.json({
+    position:   latestPosition,
+    ecuData:    latestEcuData,
+    currentLap: latestLap,
+  })
+})
+
+// ── Session API ────────────────────────────────────────────────────────────
+app.get('/api/session',        (_req, res) => res.json(sessionLaps))
+app.post('/api/session/reset', (_req, res) => {
+  sessionLaps = []
+  res.json({ ok: true })
+})
+
+app.get('/api/session/export', (_req, res) => {
+  res.setHeader('Content-Type', 'application/json')
+  res.setHeader('Content-Disposition', `attachment; filename="race-${Date.now()}.json"`)
+  res.json({ exportedAt: new Date().toISOString(), laps: sessionLaps })
+})
+
+app.post('/api/session/import', (req, res) => {
+  try {
+    const { laps } = req.body
+    if (!Array.isArray(laps)) return res.status(400).json({ error: 'Expected { laps: [...] }' })
+    sessionLaps = laps
+    res.json({ ok: true, count: laps.length })
+  } catch (e) { res.status(400).json({ error: e.message }) }
+})
+
+// ── Serve built React app ──────────────────────────────────────────────────
 app.use(express.static(join(__dirname, 'dist')))
 app.get('*', (_req, res) => res.sendFile(join(__dirname, 'dist', 'index.html')))
-
-// Warm up MQTT connection on start
-getPub()
 
 app.listen(PORT, () => console.log(`Eco dashboard on port ${PORT}`))
