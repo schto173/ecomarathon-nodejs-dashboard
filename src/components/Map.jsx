@@ -290,7 +290,7 @@ function EngineWidget() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function Map() {
+export default function Map({ hideOverlays = false }) {
   const { position, livePositions, engineEvents, corners, startLine, lapLine, finishLine } = useRaceStore()
   const startPts  = parseLine(startLine)
   const lapPts    = parseLine(lapLine)
@@ -328,18 +328,17 @@ export default function Map() {
         <MapController trail={livePositions} />
       </MapContainer>
 
-      {/* Draggable overlays — rendered outside MapContainer but inside the relative wrapper */}
-      <Draggable defaultX={12} defaultY={12} storageKey="map-speed">
-        <SpeedWidget />
-      </Draggable>
-
-      <Draggable defaultX={12} defaultY={310} storageKey="map-engine">
-        <EngineWidget />
-      </Draggable>
-
-      <Draggable defaultX={215} defaultY={12} storageKey="map-lap">
-        <LapWidget />
-      </Draggable>
+      {!hideOverlays && <>
+        <Draggable defaultX={12} defaultY={12} storageKey="map-speed">
+          <SpeedWidget />
+        </Draggable>
+        <Draggable defaultX={12} defaultY={310} storageKey="map-engine">
+          <EngineWidget />
+        </Draggable>
+        <Draggable defaultX={215} defaultY={12} storageKey="map-lap">
+          <LapWidget />
+        </Draggable>
+      </>}
 
     </div>
   )

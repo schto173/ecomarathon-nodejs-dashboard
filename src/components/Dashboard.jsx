@@ -3,9 +3,13 @@ import ConnectionStatus from './ConnectionStatus'
 import Map from './Map'
 import LapStats from './LapStats'
 import StrategyPanel from './StrategyPanel'
+import SpeedDial from './SpeedDial'
+import { useRaceStore } from '../store/raceStore'
 
 const BASE_WIDTH = 360
 const STORAGE_KEY = 'right-panel-scale'
+
+// ── Desktop (unchanged) ───────────────────────────────────────────────────────
 
 function DesktopDashboard() {
   const [scale, setScale] = useState(() => {
@@ -54,24 +58,173 @@ function DesktopDashboard() {
   )
 }
 
+// ── Mobile live panel ─────────────────────────────────────────────────────────
+
+const FUEL_LIMIT = 100
+
+function fmt(s) {
+  if (!s) return '—'
+  return `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`
+}
+
+function MobileLivePanel() {
+  const { position, ecuData, engineOn, currentLap, totalLaps, lapHistory } = useRaceStore()
+  const kmh   = position?.speed_kmh ?? null
+  const e     = ecuData ?? {}
+  const lastLap = lapHistory[lapHistory.length - 1] ?? null
+  const fuelPct = Math.min(100, ((e.FuelTotal_ml ?? 0) / FUEL_LIMIT) * 100)
+  const overLimit = (e.FuelTotal_ml ?? 0) > FUEL_LIMIT * 0.9
+
+  return (
+    <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
+
+      {/* Speed + engine */}
+      <div className="flex items-center gap-3 bg-gray-900 rounded-2xl p-4 border border-gray-800">
+        <div className="flex-1 flex justify-center">
+          <SpeedDial kmh={kmh} size={160} />
+        </div>
+        <div className="flex flex-col gap-2 items-center">
+          {/* Engine indicator */}
+          <div className={`px-3 py-2 rounded-xl text-center font-bold text-sm ${
+            engineOn
+              ? 'bg-green-900/60 text-green-400 border border-green-800'
+              : 'bg-gray-800 text-gray-500 border border-gray-700'
+          }`}>
+            {engineOn ? '▶ ON' : '■ OFF'}
+            <div className="text-xs font-normal mt-0.5 text-gray-400">Engine</div>
+          </div>
+          {/* Lap counter */}
+          <div className="bg-gray-800 rounded-xl px-3 py-2 text-center border border-gray-700">
+            <div className="text-2xl font-bold font-mono text-white leading-none">{currentLap}</div>
+            <div className="text-xs text-gray-500 mt-0.5">/ {totalLaps} laps</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Last lap */}
+      {lastLap && (
+        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-3">
+          <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Last lap · #{lastLap.lap}</div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="bg-gray-800 rounded-xl p-2">
+              <div className="text-xs text-gray-500 mb-0.5">Time</div>
+              <div className="font-mono font-bold text-white text-sm">{fmt(lastLap.duration)}</div>
+            </div>
+            <div className="bg-gray-800 rounded-xl p-2">
+              <div className="text-xs text-gray-500 mb-0.5">Avg km/h</div>
+              <div className="font-mono font-bold text-yellow-400 text-sm">
+                {lastLap.speed > 0 ? lastLap.speed.toFixed(1) : '—'}
+              </div>
+            </div>
+            <div className="bg-gray-800 rounded-xl p-2">
+              <div className="text-xs text-gray-500 mb-0.5">Fuel ml</div>
+              <div className="font-mono font-bold text-orange-400 text-sm">
+                {lastLap.fuel_lap != null ? lastLap.fuel_lap.toFixed(1) : '—'}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ECU / fuel */}
+      <div className="bg-gray-900 rounded-2xl border border-gray-800 p-3 flex flex-col gap-2.5">
+        <div className="text-xs text-gray-500 uppercase tracking-wider">Engine data</div>
+
+        {/* Temps */}
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { label: 'Coolant', value: e.ECT, max: 120, warn: 100 },
+            { label: 'Air',     value: e.IAT, max: 60,  warn: 50  },
+          ].map(({ label, value, max, warn }) => {
+            const pct = Math.min(100, ((value ?? 0) / max) * 100)
+            const hot = value != null && value > warn
+            return (
+              <div key={label} className="bg-gray-800 rounded-xl p-2.5">
+                <div className="flex justify-between items-baseline mb-1.5">
+                  <span className="text-xs text-gray-500">{label}</span>
+                  <span className={`text-sm font-mono font-bold ${hot ? 'text-red-400' : 'text-white'}`}>
+                    {value != null ? `${value.toFixed(0)}°` : '—'}
+                  </span>
+                </div>
+                <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: `${pct}%`, background: hot ? '#ef4444' : '#FBCE07' }} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* ECU grid */}
+        <div className="grid grid-cols-4 gap-1.5 text-xs">
+          {[
+            { k: 'MAP',   v: e.MAP,   u: 'kPa', c: 'text-blue-400'   },
+            { k: 'TPS',   v: e.TPS,   u: '%',   c: 'text-green-400'  },
+            { k: 'SPARK', v: e.SPARK, u: '°',   c: 'text-yellow-300' },
+            { k: 'O2S',   v: e.O2S,   u: 'V',   c: 'text-purple-400' },
+          ].map(({ k, v, u, c }) => (
+            <div key={k} className="bg-gray-800 rounded-lg p-1.5 text-center">
+              <div className="text-gray-500" style={{ fontSize: 9 }}>{k}</div>
+              <div className={`font-mono font-bold ${c} text-xs`}>
+                {v != null ? v.toFixed(1) : '—'}
+                <span className="text-gray-600" style={{ fontSize: 9 }}>{u}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Fuel */}
+        <div>
+          <div className="flex justify-between text-xs mb-1">
+            <span className="text-gray-500">⛽ Fuel used</span>
+            <span className={`font-mono font-bold ${overLimit ? 'text-red-400' : 'text-orange-400'}`}>
+              {e.FuelTotal_ml != null ? `${e.FuelTotal_ml.toFixed(1)} / ${FUEL_LIMIT} ml` : '—'}
+            </span>
+          </div>
+          <div className="h-2.5 bg-gray-800 rounded-full overflow-hidden">
+            <div className="h-full rounded-full transition-all duration-500"
+              style={{ width: `${fuelPct}%`, background: overLimit ? '#ef4444' : '#FBCE07' }} />
+          </div>
+          {e.FuelConsumption_g_min != null && (
+            <div className="text-xs text-gray-500 mt-1 text-right">
+              Live: <span className="text-orange-400 font-mono">{e.FuelConsumption_g_min.toFixed(2)} g/min</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Sim link */}
+      <div className="flex justify-end pb-1">
+        <a href="#/sim" className="text-xs text-gray-600 hover:text-shell-yellow transition-colors px-2 py-1 rounded border border-gray-800">
+          Simulator →
+        </a>
+      </div>
+    </div>
+  )
+}
+
+// ── Mobile shell ──────────────────────────────────────────────────────────────
+
+const TABS = [
+  { id: 'live', label: 'Live' },
+  { id: 'map',  label: 'Map'  },
+  { id: 'laps', label: 'Laps' },
+]
+
 function MobileDashboard() {
-  const [tab, setTab] = useState('stats')
+  const [tab, setTab] = useState('live')
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       {/* Tab bar */}
       <div className="flex border-b border-gray-800 bg-gray-900 shrink-0">
-        {[
-          { id: 'stats', label: 'Strategy & Laps' },
-          { id: 'map', label: 'Map' },
-        ].map(t => (
+        {TABS.map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
+            className={`flex-1 py-3 text-sm font-semibold tracking-wide transition-colors ${
               tab === t.id
                 ? 'text-shell-yellow border-b-2 border-shell-yellow'
-                : 'text-gray-500 hover:text-gray-300'
+                : 'text-gray-500 active:text-gray-300'
             }`}
           >
             {t.label}
@@ -79,20 +232,24 @@ function MobileDashboard() {
         ))}
       </div>
 
-      {/* Tab content */}
-      {tab === 'stats' ? (
-        <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-2">
+      {/* Tab content — keep map mounted so it doesn't re-init on tab switch */}
+      <div className={`flex-1 min-h-0 overflow-hidden ${tab === 'map' ? 'flex' : 'hidden'}`}>
+        <Map hideOverlays />
+      </div>
+
+      {tab === 'live' && <MobileLivePanel />}
+
+      {tab === 'laps' && (
+        <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
           <StrategyPanel />
           <LapStats />
-        </div>
-      ) : (
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <Map />
         </div>
       )}
     </div>
   )
 }
+
+// ── Root ──────────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768)
