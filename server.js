@@ -101,6 +101,7 @@ const sim = {
   },
 
   load() {
+    if (!TRACK.length) throw new Error('track.csv not found — cannot run simulator')
     // Shell EcoMarathon pulse-and-glide:
     // Pulse-and-glide directly over CSV track points (1m resolution, no interpolation)
     // Engine ON → accelerate 20→38 km/h, Engine OFF → coast 38→20 km/h

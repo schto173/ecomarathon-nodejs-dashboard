@@ -11,6 +11,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY server.js ./
+COPY track.csv ./
 EXPOSE 80
 ENV PORT=80
 CMD ["node", "server.js"]
