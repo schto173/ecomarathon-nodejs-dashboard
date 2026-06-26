@@ -12,6 +12,7 @@ const TOPICS = [
   'ecu/data',
   'speed/data',
   'race/laps',
+  'race/last_lap_stats',
   'race/current_lap',
   'race/last_lap_stats',
   'race/info_text',
@@ -77,6 +78,7 @@ export function useMqtt() {
         case 'speed/data':
           store.setSpeedData(data)
           break
+        case 'race/last_lap_stats':
         case 'race/laps': {
           // Accept both node-red raw format {lap, duration, ...} and event-wrapped format
           const raw = data.event

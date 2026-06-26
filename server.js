@@ -49,7 +49,7 @@ function pub(topic, payload) {
 }
 
 // ── Track data — loaded once from track.csv ───────────────────────────────
-import { readFileSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync } from 'fs'
 
 function loadTrack() {
   const raw = readFileSync(join(__dirname, 'track.csv'), 'utf8')
@@ -292,8 +292,22 @@ app.post('/api/sim/play', (req, res) => {
 app.post('/api/sim/pause', (_req, res) => { sim.pause(); res.json(sim.status()) })
 app.post('/api/sim/stop',  (_req, res) => { sim.stop();  res.json(sim.status()) })
 
-// ── Session store — laps received from race/laps MQTT ─────────────────────
-let sessionLaps = []
+// ── Session store — persisted to disk so reloads keep full race history ───
+const SESSION_FILE = join(__dirname, 'session.json')
+
+function loadSessionFromDisk() {
+  try {
+    if (existsSync(SESSION_FILE))
+      return JSON.parse(readFileSync(SESSION_FILE, 'utf8'))
+  } catch {}
+  return []
+}
+
+function saveSessionToDisk() {
+  try { writeFileSync(SESSION_FILE, JSON.stringify(sessionLaps), 'utf8') } catch {}
+}
+
+let sessionLaps = loadSessionFromDisk()
 
 // ── Live rolling arrays — fed by MQTT subscriber ──────────────────────────
 const LIVE_WINDOW_MS = 160_000
@@ -379,6 +393,7 @@ function trimLiveArrays() {
           if (idx >= 0) sessionLaps[idx] = lap
           else sessionLaps.push(lap)
           sessionLaps.sort((a, b) => a.lap - b.lap)
+          saveSessionToDisk()
         }
 
       } else if (topic === 'race/current_lap') {
@@ -402,6 +417,7 @@ function trimLiveArrays() {
         if (idx >= 0) sessionLaps[idx] = lap
         else sessionLaps.push(lap)
         sessionLaps.sort((a, b) => a.lap - b.lap)
+        saveSessionToDisk()
       }
     } catch {}
   })
@@ -426,6 +442,7 @@ app.get('/api/state', (_req, res) => {
 app.get('/api/session',        (_req, res) => res.json(sessionLaps))
 app.post('/api/session/reset', (_req, res) => {
   sessionLaps = []
+  saveSessionToDisk()
   res.json({ ok: true })
 })
 
@@ -440,6 +457,7 @@ app.post('/api/session/import', (req, res) => {
     const { laps } = req.body
     if (!Array.isArray(laps)) return res.status(400).json({ error: 'Expected { laps: [...] }' })
     sessionLaps = laps
+    saveSessionToDisk()
     res.json({ ok: true, count: laps.length })
   } catch (e) { res.status(400).json({ error: e.message }) }
 })
