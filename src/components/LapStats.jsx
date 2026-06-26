@@ -104,8 +104,7 @@ export default function LapStats() {
           >↓ Export</button>
           <button
             onClick={handleReset}
-            disabled={lapHistory.length === 0}
-            className="text-xs px-2 py-0.5 rounded border border-red-900 text-red-500 hover:text-red-300 hover:border-red-700 transition-colors disabled:opacity-30"
+            className="text-xs px-2 py-0.5 rounded border border-red-900 text-red-500 hover:text-red-300 hover:border-red-700 transition-colors"
             title="Reset session"
           >Reset</button>
         </div>
