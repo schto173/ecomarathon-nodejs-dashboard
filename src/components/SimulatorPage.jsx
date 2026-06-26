@@ -17,7 +17,8 @@ export default function SimulatorPage() {
         </a>
       </header>
 
-      <div className="flex-1 flex items-start justify-center p-6 overflow-auto">
+      {/* Hidden on mobile — simulator is a desktop-only tool */}
+      <div className="hidden md:flex flex-1 items-start justify-center p-6 overflow-auto">
         <div className="w-80 flex flex-col gap-4">
           <div className="text-sm text-gray-400">
             Publishes sensor data to MQTT — <span className="font-mono text-gray-300">gps/position</span>, <span className="font-mono text-gray-300">ecu/data</span>, <span className="font-mono text-gray-300">speed/data</span> — exactly as the car does. Open the{' '}
@@ -28,6 +29,11 @@ export default function SimulatorPage() {
             {mqttConnected ? '● MQTT connected — live data active alongside simulator' : '○ MQTT disconnected'}
           </div>
         </div>
+      </div>
+
+      {/* Mobile message */}
+      <div className="md:hidden flex-1 flex items-center justify-center p-6 text-center">
+        <p className="text-gray-600 text-sm">Simulator is only available on desktop.</p>
       </div>
     </div>
   )
