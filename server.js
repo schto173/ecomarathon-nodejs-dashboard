@@ -476,6 +476,8 @@ app.post('/api/session/reset', (_req, res) => {
   sessionLaps = []
   positionBuffer.length = 0
   engineEventBuffer.length = 0
+  livePositions.length = 0
+  liveEngineEvents.length = 0
   saveSessionToDisk()
   res.json({ ok: true })
 })
