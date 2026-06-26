@@ -47,6 +47,9 @@ function DesktopDashboard() {
         >
           <StrategyPanel />
           <LapStats />
+          <div className="flex justify-end">
+            <a href="#/sim" className="text-xs text-gray-700 hover:text-gray-500 transition-colors px-1">sim</a>
+          </div>
         </div>
       </div>
     </div>
@@ -195,12 +198,6 @@ function MobileLivePanel() {
         </div>
       </div>
 
-      {/* Sim link */}
-      <div className="flex justify-end pb-1">
-        <a href="#/sim" className="text-xs text-gray-600 hover:text-shell-yellow transition-colors px-2 py-1 rounded border border-gray-800">
-          Simulator →
-        </a>
-      </div>
     </div>
   )
 }
