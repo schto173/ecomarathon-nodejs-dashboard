@@ -3,7 +3,7 @@ services:
     build: .
     restart: unless-stopped
     networks:
-      - traefik
+      - traefik_default
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.eco-dashboard.rule=Host(`eco-dashboard.tome.lu`)"
@@ -12,5 +12,5 @@ services:
       - "traefik.http.services.eco-dashboard.loadbalancer.server.port=80"
 
 networks:
-  traefik:
+  traefik_default:
     external: true
