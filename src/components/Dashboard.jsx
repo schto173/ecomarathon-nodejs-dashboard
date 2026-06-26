@@ -45,11 +45,6 @@ function DesktopDashboard() {
           className="flex flex-col gap-2 origin-top-left"
           style={{ width: BASE_WIDTH, transform: `scale(${scale})` }}
         >
-          <div className="flex justify-end">
-            <a href="#/sim" className="text-xs text-gray-600 hover:text-shell-yellow transition-colors px-2 py-0.5 rounded border border-gray-800 hover:border-gray-600">
-              Sim →
-            </a>
-          </div>
           <StrategyPanel />
           <LapStats />
         </div>
