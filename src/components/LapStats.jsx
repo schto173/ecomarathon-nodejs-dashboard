@@ -40,7 +40,7 @@ export default function LapStats() {
 
   function handleExport() {
     fetch('/api/session/export')
-      .then(r => r.blob())
+      .then(r => r.blob()) 
       .then(blob => {
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
