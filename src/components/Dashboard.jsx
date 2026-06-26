@@ -68,10 +68,11 @@ function fmt(s) {
 }
 
 function MobileLivePanel() {
-  const { position, ecuData, engineOn, currentLap, totalLaps, lapHistory } = useRaceStore()
+  const { position, ecuData, engineOn, currentLap, totalLaps, lapHistory,
+          selectedLap, clearSelectedLap } = useRaceStore()
   const kmh   = position?.speed_kmh ?? null
   const e     = ecuData ?? {}
-  const lastLap = lapHistory[lapHistory.length - 1] ?? null
+  const lastLap = selectedLap ?? lapHistory[lapHistory.length - 1] ?? null
   const fuelPct = Math.min(100, ((e.FuelTotal_ml ?? 0) / FUEL_LIMIT) * 100)
   const overLimit = (e.FuelTotal_ml ?? 0) > FUEL_LIMIT * 0.9
 
@@ -101,10 +102,17 @@ function MobileLivePanel() {
         </div>
       </div>
 
-      {/* Last lap */}
+      {/* Last / selected lap */}
       {lastLap && (
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-3">
-          <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Last lap · #{lastLap.lap}</div>
+        <div className={`rounded-2xl border p-3 ${selectedLap ? 'bg-shell-yellow/5 border-shell-yellow/30' : 'bg-gray-900 border-gray-800'}`}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs text-gray-500 uppercase tracking-wider">
+              {selectedLap ? `Viewing lap` : 'Last lap'} · <span className={selectedLap ? 'text-shell-yellow font-bold' : ''}>#{lastLap.lap}</span>
+            </div>
+            {selectedLap && (
+              <button onClick={clearSelectedLap} className="text-xs text-shell-yellow hover:text-white transition-colors font-semibold">← Live</button>
+            )}
+          </div>
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="bg-gray-800 rounded-xl p-2">
               <div className="text-xs text-gray-500 mb-0.5">Time</div>

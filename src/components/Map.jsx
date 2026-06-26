@@ -44,7 +44,7 @@ function speedColor(kmh) {
 }
 
 // Trail from server's rolling position array — colour-coded by speed
-function TrailLayer({ positions }) {
+function TrailLayer({ positions, opacity = 0.95 }) {
   const map = useMap()
   const layersRef = useRef([])
 
@@ -67,7 +67,7 @@ function TrailLayer({ positions }) {
     }
 
     segments.forEach(({ color, pts }) => {
-      const layer = L.polyline(pts, { color, weight: 4, opacity: 0.95 })
+      const layer = L.polyline(pts, { color, weight: 4, opacity })
       layer.addTo(map)
       layersRef.current.push(layer)
     })
@@ -290,11 +290,28 @@ function EngineWidget() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+function fmt(s) {
+  if (!s) return '—'
+  return `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`
+}
+
 export default function Map({ hideOverlays = false }) {
-  const { position, livePositions, engineEvents, corners, startLine, lapLine, finishLine } = useRaceStore()
+  const { position, livePositions, engineEvents, corners, startLine, lapLine, finishLine,
+          selectedLap, clearSelectedLap, lapHistory } = useRaceStore()
   const startPts  = parseLine(startLine)
   const lapPts    = parseLine(lapLine)
   const finishPts = parseLine(finishLine)
+
+  // Best lap by projection (km/L) for ghost overlay
+  const bestLap = lapHistory.reduce((best, l) =>
+    l.projection > 0 && (!best || l.projection > best.projection) ? l : best, null)
+  const ghostTrail = selectedLap && bestLap && bestLap.lap !== selectedLap.lap
+    ? (bestLap.trail ?? []) : []
+
+  // What to show on the map
+  const displayTrail   = selectedLap ? (selectedLap.trail ?? []) : livePositions
+  const displayEngine  = selectedLap ? [] : engineEvents   // engine events only in live mode
+  const displayPos     = selectedLap ? null : position
 
   const savedView = loadSavedView()
   const initialCenter = savedView ? [savedView.lat, savedView.lng] : SILESIA_CENTER
@@ -313,22 +330,53 @@ export default function Map({ hideOverlays = false }) {
       >
         <TileLayer url="https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}&s=Ga" attribution="" maxZoom={21} />
 
-        <TrailLayer positions={livePositions} />
+        {/* Ghost trail — best lap shown faintly behind selected lap */}
+        {ghostTrail.length > 0 && (
+          <TrailLayer positions={ghostTrail} opacity={0.25} />
+        )}
 
+        <TrailLayer positions={displayTrail} />
 
-
-        {engineEvents.map((ev, i) => (
+        {displayEngine.map((ev, i) => (
           <Marker key={ev.t ?? i} position={[ev.lat, ev.lng]} icon={engineEventIcon(ev)} />
         ))}
 
-        {position?.latitude && (
-          <Marker position={[position.latitude, position.longitude]} icon={makeCarIcon(speedColor(position.speed_kmh))} />
+        {displayPos?.latitude && (
+          <Marker position={[displayPos.latitude, displayPos.longitude]} icon={makeCarIcon(speedColor(displayPos.speed_kmh))} />
         )}
 
-        <MapController trail={livePositions} />
+        <MapController trail={displayTrail} />
       </MapContainer>
 
-      {!hideOverlays && <>
+      {/* Replay mode banner */}
+      {selectedLap && (
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[1000] pointer-events-auto">
+          <div className="flex items-center gap-2 bg-gray-950/90 backdrop-blur border border-shell-yellow/50 rounded-xl px-3 py-2 shadow-lg">
+            <span className="text-xs text-gray-400">Lap</span>
+            <span className="text-shell-yellow font-bold text-sm">#{selectedLap.lap}</span>
+            <span className="text-gray-600">|</span>
+            <span className="text-xs font-mono text-white">{fmt(selectedLap.duration)}</span>
+            {selectedLap.speed > 0 && <>
+              <span className="text-gray-600">|</span>
+              <span className="text-xs font-mono text-yellow-400">{selectedLap.speed.toFixed(1)} km/h</span>
+            </>}
+            {selectedLap.fuel_lap > 0 && <>
+              <span className="text-gray-600">|</span>
+              <span className="text-xs font-mono text-orange-400">{selectedLap.fuel_lap.toFixed(1)} ml</span>
+            </>}
+            {ghostTrail.length > 0 && <>
+              <span className="text-gray-600">|</span>
+              <span className="text-xs text-gray-500">ghost: best lap #{bestLap.lap}</span>
+            </>}
+            <button
+              onClick={clearSelectedLap}
+              className="ml-1 text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg px-2 py-0.5 transition-colors font-semibold"
+            >← Live</button>
+          </div>
+        </div>
+      )}
+
+      {!hideOverlays && !selectedLap && <>
         <Draggable defaultX={12} defaultY={12} storageKey="map-speed">
           <SpeedWidget />
         </Draggable>

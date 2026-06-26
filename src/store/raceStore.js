@@ -102,6 +102,11 @@ export const useRaceStore = create((set, get) => ({
   setIdealLapTime: (t) => set({ idealLapTime: t }),
   setInfoText: (t) => set({ infoText: t }),
 
+  // Selected lap for replay / analysis
+  selectedLap: null,
+  setSelectedLap: (lap) => set({ selectedLap: lap }),
+  clearSelectedLap: () => set({ selectedLap: null }),
+
   // Lap history
   lapHistory: [],
   addLap: (data) =>

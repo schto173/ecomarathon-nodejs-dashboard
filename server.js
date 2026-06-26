@@ -322,6 +322,15 @@ let latestLap      = 0
 // Lap tracking from race/current_lap transitions (node-red publishes lap stats to InfluxDB only)
 let lapTrack = { lastLap: 0, lastFuelMl: 0, lastTimeMs: 0 }
 
+// Position buffer for per-lap trail extraction — kept 15 min, trimmed after use
+const positionBuffer = []  // { lat, lng, speed_kmh, t }
+const POS_BUFFER_MS  = 15 * 60 * 1000
+
+function trimPositionBuffer() {
+  const cutoff = Date.now() - POS_BUFFER_MS
+  while (positionBuffer.length && positionBuffer[0].t < cutoff) positionBuffer.shift()
+}
+
 function trimLiveArrays() {
   const cutoff = Date.now() - LIVE_WINDOW_MS
   while (livePositions.length    && livePositions[0].t    < cutoff) livePositions.shift()
@@ -353,6 +362,8 @@ function trimLiveArrays() {
         const speed_kmh = d.speed_kmh ?? d.kmh ?? 0
         const t         = Date.now()
         livePositions.push({ lat, lng, speed_kmh, t })
+        positionBuffer.push({ lat, lng, speed_kmh, t })
+        trimPositionBuffer()
         lastPos = { lat, lng, speed_kmh }
         latestPosition = {
           latitude:  lat,
@@ -401,6 +412,11 @@ function trimLiveArrays() {
         if (!isNaN(n)) latestLap = n
 
       } else if (topic === 'race/last_lap_stats') {
+        // Allow 8 s clock skew between node-red and this server
+        const SKEW = 8000
+        const trail = d.start && d.end
+          ? positionBuffer.filter(p => p.t >= d.start - SKEW && p.t <= d.end + SKEW)
+          : []
         const lap = {
           lap:            d.lap,
           duration:       d.duration       ?? 0,
@@ -412,6 +428,7 @@ function trimLiveArrays() {
           distance:       d.distance       ?? 0,
           speed:          d.speed          ?? 0,
           projection:     d.projection     ?? 0,
+          trail,
         }
         const idx = sessionLaps.findIndex(l => l.lap === lap.lap)
         if (idx >= 0) sessionLaps[idx] = lap
