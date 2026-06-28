@@ -1,6 +1,5 @@
 import { useRaceStore } from '../store/raceStore'
 import { Wifi, WifiOff } from 'lucide-react'
-import SimControl from './SimControl'
 
 export default function ConnectionStatus() {
   const { mqttConnected, gpsStatus, infoText, ecuData } = useRaceStore()
@@ -34,7 +33,7 @@ export default function ConnectionStatus() {
         </div>
       )}
 
-      <SimControl />
+
     </div>
   )
 }
