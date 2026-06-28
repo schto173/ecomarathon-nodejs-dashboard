@@ -156,13 +156,20 @@ export const useRaceStore = create((set, get) => ({
         : null
     const avgFuelPerLap =
       scoringLaps.length > 0
-        ? scoringLaps.reduce((s, l) => s + l.fuel_lap, 0) / scoringLaps.length
+        ? scoringLaps.reduce((s, l) => s + (l.fuel_lap ?? 0), 0) / scoringLaps.length
         : null
+    const totalFuelUsed =
+      scoringLaps.reduce((s, l) => s + (l.fuel_lap ?? 0), 0)
     const projectedTotalFuel =
-      avgFuelPerLap != null ? (ecuData?.FuelTotal_ml ?? 0) + avgFuelPerLap * remainingLaps : null
+      avgFuelPerLap != null ? totalFuelUsed + avgFuelPerLap * remainingLaps : null
     const paceDelta =
       avgLapTime != null && idealLapTime != null ? avgLapTime - idealLapTime : null
+    const projLaps = scoringLaps.filter(l => l.projection > 0)
+    const avgKmPerL =
+      projLaps.length > 0
+        ? projLaps.reduce((s, l) => s + l.projection, 0) / projLaps.length
+        : null
 
-    return { remainingLaps, lastLap, avgLapTime, avgFuelPerLap, projectedTotalFuel, paceDelta }
+    return { remainingLaps, lastLap, avgLapTime, avgFuelPerLap, projectedTotalFuel, paceDelta, avgKmPerL }
   },
 }))

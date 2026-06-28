@@ -10,12 +10,9 @@ function fmtLap(s) {
 
 export default function StrategyPanel() {
   const { getStrategyStats, idealLapTime } = useRaceStore()
-  const { remainingLaps, avgLapTime, avgFuelPerLap, projectedTotalFuel, paceDelta } = getStrategyStats()
+  const { remainingLaps, avgLapTime, avgFuelPerLap, projectedTotalFuel, paceDelta, avgKmPerL } = getStrategyStats()
   const paceOk = paceDelta != null && paceDelta <= 0
-
-  const kmPerL = avgFuelPerLap != null && avgFuelPerLap > 0
-    ? (LAP_KM / (avgFuelPerLap / 1000 / 0.745)).toFixed(0)
-    : null
+  const kmPerL = avgKmPerL != null ? avgKmPerL.toFixed(0) : null
 
   return (
     <div className="bg-gray-900 rounded-xl border border-gray-800 p-3 flex flex-col gap-2">
