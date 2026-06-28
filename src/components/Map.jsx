@@ -4,6 +4,7 @@ import L from 'leaflet'
 import { useRaceStore } from '../store/raceStore'
 import Draggable from './Draggable'
 import SpeedDial from './SpeedDial'
+import { useFuelFactor } from '../hooks/useFuelFactor'
 
 const SILESIA_CENTER = [50.5293, 18.0960]
 const DEFAULT_ZOOM = 17
@@ -234,9 +235,11 @@ function TempRow({ label, value, max, warn, color }) {
 
 function EngineWidget() {
   const { ecuData, engineOn } = useRaceStore()
+  const [factor] = useFuelFactor()
   const e = ecuData ?? {}
-  const fuelPct = Math.min(100, ((e.FuelTotal_ml ?? 0) / FUEL_LIMIT) * 100)
-  const overLimit = (e.FuelTotal_ml ?? 0) > FUEL_LIMIT * 0.9
+  const adjFuel = (e.FuelTotal_ml ?? 0) * factor
+  const fuelPct = Math.min(100, (adjFuel / FUEL_LIMIT) * 100)
+  const overLimit = adjFuel > FUEL_LIMIT * 0.9
 
   return (
     <HudBox className="p-2.5 flex flex-col gap-2 min-w-[200px]">
@@ -277,7 +280,7 @@ function EngineWidget() {
         <div className="flex justify-between text-xs">
           <span className="text-gray-500">⛽ Total used</span>
           <span className={`font-mono font-bold ${overLimit ? 'text-red-400' : 'text-orange-400'}`}>
-            {e.FuelTotal_ml != null ? `${e.FuelTotal_ml.toFixed(1)} / ${FUEL_LIMIT} ml` : '—'}
+            {e.FuelTotal_ml != null ? `${adjFuel.toFixed(1)} / ${FUEL_LIMIT} ml` : '—'}
           </span>
         </div>
         <div className="h-2 bg-gray-800/80 rounded-full overflow-hidden">
@@ -307,6 +310,7 @@ function fmt(s) {
 export default function Map({ hideOverlays = false }) {
   const { position, livePositions, engineEvents, corners, startLine, lapLine, finishLine,
           selectedLap, clearSelectedLap, lapHistory } = useRaceStore()
+  const [factor] = useFuelFactor()
   const startPts  = parseLine(startLine)
   const lapPts    = parseLine(lapLine)
   const finishPts = parseLine(finishLine)
@@ -381,7 +385,7 @@ export default function Map({ hideOverlays = false }) {
             </>}
             {selectedLap.fuel_lap > 0 && <>
               <span className="text-gray-600">|</span>
-              <span className="text-xs font-mono text-orange-400">{selectedLap.fuel_lap.toFixed(1)} ml</span>
+              <span className="text-xs font-mono text-orange-400">{(selectedLap.fuel_lap * factor).toFixed(1)} ml</span>
             </>}
             {ghostTrail.length > 0 && <>
               <span className="text-gray-600">|</span>

@@ -143,7 +143,7 @@ export default function LapStats() {
                 const origIdx = lapHistory.length - 1 - ri
                 const isBest = origIdx === bestEffIdx
                 const isSelected = selectedLap?.lap === lap.lap
-                const kmPerL = lap.projection > 0 ? lap.projection.toFixed(1) : '—'
+                const kmPerL = lap.projection > 0 ? (lap.projection / factor).toFixed(1) : '—'
                 const diff = lap.lap_ideal_diff ?? (idealLapTime && lap.duration ? lap.duration - idealLapTime : null)
                 const avgKmh = lap.speed > 0 ? lap.speed.toFixed(1) : '—'
                 const fuelMl = lap.fuel_lap != null ? (lap.fuel_lap * factor).toFixed(1) : '—'

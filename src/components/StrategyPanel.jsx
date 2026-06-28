@@ -14,7 +14,7 @@ export default function StrategyPanel() {
   const { remainingLaps, avgLapTime, avgFuelPerLap, projectedTotalFuel, paceDelta, avgKmPerL } = getStrategyStats()
   const [factor, setFactor] = useFuelFactor()
   const paceOk = paceDelta != null && paceDelta <= 0
-  const kmPerL = avgKmPerL != null ? avgKmPerL.toFixed(0) : null
+  const kmPerL = avgKmPerL != null ? (avgKmPerL / factor).toFixed(0) : null
 
   const adjFuelPerLap = avgFuelPerLap != null ? avgFuelPerLap * factor : null
   const adjProjected  = projectedTotalFuel != null ? projectedTotalFuel * factor : null
