@@ -22,7 +22,20 @@ function speedColorRgb(kmh) {
   return `rgb(${Math.round(lo.r+(hi.r-lo.r)*f)},${Math.round(lo.g+(hi.g-lo.g)*f)},${Math.round(lo.b+(hi.b-lo.b)*f)})`
 }
 
+function loadFuelFactor() {
+  try { return parseFloat(localStorage.getItem('fuel-correction-factor') || '1') || 1 } catch { return 1 }
+}
+
 export const useRaceStore = create((set, get) => ({
+  // Fuel correction factor — display only, stored in localStorage
+  fuelFactor: loadFuelFactor(),
+  setFuelFactor: (v) => {
+    const n = parseFloat(v)
+    if (!isFinite(n) || n <= 0) return
+    try { localStorage.setItem('fuel-correction-factor', String(n)) } catch {}
+    set({ fuelFactor: n })
+  },
+
   // Connection
   mqttConnected: false,
   setMqttConnected: (v) => set({ mqttConnected: v }),
