@@ -5,6 +5,7 @@ import LapStats from './LapStats'
 import StrategyPanel from './StrategyPanel'
 import SpeedDial from './SpeedDial'
 import { useRaceStore } from '../store/raceStore'
+import { useFuelFactor } from '../hooks/useFuelFactor'
 
 const BASE_WIDTH = 360
 const STORAGE_KEY = 'right-panel-scale'
@@ -68,11 +69,14 @@ function fmt(s) {
 function MobileLivePanel() {
   const { position, ecuData, engineOn, currentLap, totalLaps, lapHistory,
           selectedLap, clearSelectedLap } = useRaceStore()
+  const [factor] = useFuelFactor()
   const kmh   = position?.speed_kmh ?? null
   const e     = ecuData ?? {}
   const lastLap = selectedLap ?? lapHistory[lapHistory.length - 1] ?? null
-  const fuelPct = Math.min(100, ((e.FuelTotal_ml ?? 0) / FUEL_LIMIT) * 100)
-  const overLimit = (e.FuelTotal_ml ?? 0) > FUEL_LIMIT * 0.9
+  const rawFuel = e.FuelTotal_ml ?? 0
+  const adjFuel = rawFuel * factor
+  const fuelPct = Math.min(100, (adjFuel / FUEL_LIMIT) * 100)
+  const overLimit = adjFuel > FUEL_LIMIT * 0.9
 
   return (
     <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3">
@@ -125,7 +129,7 @@ function MobileLivePanel() {
             <div className="bg-gray-800 rounded-xl p-2">
               <div className="text-xs text-gray-500 mb-0.5">Fuel ml</div>
               <div className="font-mono font-bold text-orange-400 text-sm">
-                {lastLap.fuel_lap != null ? lastLap.fuel_lap.toFixed(1) : '—'}
+                {lastLap.fuel_lap != null ? (lastLap.fuel_lap * factor).toFixed(1) : '—'}
               </div>
             </div>
           </div>
@@ -183,7 +187,7 @@ function MobileLivePanel() {
           <div className="flex justify-between text-xs mb-1">
             <span className="text-gray-500">⛽ Fuel used</span>
             <span className={`font-mono font-bold ${overLimit ? 'text-red-400' : 'text-orange-400'}`}>
-              {e.FuelTotal_ml != null ? `${e.FuelTotal_ml.toFixed(1)} / ${FUEL_LIMIT} ml` : '—'}
+              {e.FuelTotal_ml != null ? `${adjFuel.toFixed(1)} / ${FUEL_LIMIT} ml` : '—'}
             </span>
           </div>
           <div className="h-2.5 bg-gray-800 rounded-full overflow-hidden">

@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 import { useRaceStore } from '../store/raceStore'
+import { useFuelFactor } from '../hooks/useFuelFactor'
 
 function fmt(seconds) {
   if (seconds == null || seconds === 0) return '—'
@@ -24,6 +25,7 @@ export default function LapStats() {
     setLapHistory, clearLaps,
     selectedLap, setSelectedLap, clearSelectedLap,
   } = useRaceStore()
+  const [factor] = useFuelFactor()
   const importRef = useRef(null)
 
   // Best lap by fuel efficiency (highest projection = km/L)
@@ -144,7 +146,7 @@ export default function LapStats() {
                 const kmPerL = lap.projection > 0 ? lap.projection.toFixed(1) : '—'
                 const diff = lap.lap_ideal_diff ?? (idealLapTime && lap.duration ? lap.duration - idealLapTime : null)
                 const avgKmh = lap.speed > 0 ? lap.speed.toFixed(1) : '—'
-                const fuelMl = lap.fuel_lap != null ? lap.fuel_lap.toFixed(1) : '—'
+                const fuelMl = lap.fuel_lap != null ? (lap.fuel_lap * factor).toFixed(1) : '—'
                 const hasTrail = Array.isArray(lap.trail) && lap.trail.length > 0
 
                 return (
