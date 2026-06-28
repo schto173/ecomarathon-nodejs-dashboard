@@ -149,13 +149,14 @@ export const useRaceStore = create((set, get) => ({
     const { currentLap, totalLaps, lapHistory, idealLapTime, ecuData } = get()
     const remainingLaps = Math.max(0, totalLaps - currentLap)
     const lastLap = lapHistory[lapHistory.length - 1] ?? null
+    const scoringLaps = lapHistory.filter(l => l.lap > 0)
     const avgLapTime =
-      lapHistory.length > 0
-        ? lapHistory.reduce((s, l) => s + l.duration, 0) / lapHistory.length
+      scoringLaps.length > 0
+        ? scoringLaps.reduce((s, l) => s + l.duration, 0) / scoringLaps.length
         : null
     const avgFuelPerLap =
-      lapHistory.length > 0
-        ? lapHistory.reduce((s, l) => s + l.fuel_lap, 0) / lapHistory.length
+      scoringLaps.length > 0
+        ? scoringLaps.reduce((s, l) => s + l.fuel_lap, 0) / scoringLaps.length
         : null
     const projectedTotalFuel =
       avgFuelPerLap != null ? (ecuData?.FuelTotal_ml ?? 0) + avgFuelPerLap * remainingLaps : null

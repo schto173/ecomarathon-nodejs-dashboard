@@ -28,7 +28,7 @@ export default function LapStats() {
 
   // Best lap by fuel efficiency (highest projection = km/L)
   const bestEffIdx = lapHistory.reduce((best, l, i) => {
-    if (l.projection > 0 && (best === -1 || l.projection > lapHistory[best].projection)) return i
+    if (l.lap > 0 && l.projection > 0 && (best === -1 || l.projection > lapHistory[best].projection)) return i
     return best
   }, -1)
 
